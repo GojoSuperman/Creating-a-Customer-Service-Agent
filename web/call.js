@@ -152,7 +152,9 @@ $("voice-select").onchange = (e) => { const v = voice.listVoices()[e.target.valu
     const pref = preferredVoice(vs);
     const cur = pref ? vs.indexOf(pref) : 0;
     if (pref) voice.setVoice(pref);
-    $("voice-select").innerHTML = vs.map((v, i) => `<option value="${i}" ${i === cur ? "selected" : ""}>${v.name}</option>`).join("");
+    // 표시 이름 정리: 크롬 내장 음성 "Google 한국의" 는 "Google" 로 보여 준다 (음성은 동일)
+    const label = (v) => /^google/i.test(v.name) ? "Google" : v.name;
+    $("voice-select").innerHTML = vs.map((v, i) => `<option value="${i}" ${i === cur ? "selected" : ""}>${label(v)}</option>`).join("");
   };
   fill(); if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = fill;
   setPhase("IDLE");
