@@ -27,6 +27,8 @@ class RouteDecision(BaseModel):
                                        description="두 번째로 가능성 높은 라우트. 다른 후보가 전혀 없으면 null.")
     alt_confidence: float = Field(default=0.0, ge=0.0, le=1.0,
                                   description="route_alt 의 확신도. route_alt 가 null 이면 0.")
+    is_followup: bool = Field(default=False,
+                              description="[직전 라우트] 가 주어졌고 현재 발화가 그 문의의 연속(같은 상품·주문·주제의 추가 질문)이면 true. 새 주제면 false. 직전 라우트가 없으면 false.")
 
 
 class RouterState(TypedDict, total=False):
@@ -36,7 +38,8 @@ class RouterState(TypedDict, total=False):
     reason: str
     route_alt: Optional[str]
     alt_confidence: float
-    action: str            # HANDLE / ESCALATE / OUT_OF_SCOPE
+    is_followup: bool
+    action: str           # HANDLE / ESCALATE / OUT_OF_SCOPE
     message: Optional[str]
 
 
@@ -83,7 +86,8 @@ def build_router(domain: Domain, conf_threshold: float,
         # 2순위가 1순위와 같은 라우트면 후보가 하나뿐이라는 뜻이니 없는 것으로 본다.
         alt = None if d.route_alt == d.route else d.route_alt
         return {"route": d.route, "confidence": d.confidence, "reason": d.reason,
-                "route_alt": alt, "alt_confidence": d.alt_confidence if alt else 0.0}
+                "route_alt": alt, "alt_confidence": d.alt_confidence if alt else 0.0,
+                "is_followup": d.is_followup}
 
     def node_gate(state: RouterState) -> RouterState:
         # 마진 = 1순위 확신도 - 2순위 확신도. 2순위가 없으면 1.0(애매하지 않음)으로 본다.

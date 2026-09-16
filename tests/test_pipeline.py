@@ -384,3 +384,82 @@ def test_pipeline_passes_conf_margin_to_router(domain, modumall_dir, tmp_path, m
                  clarify_max=1, conf_margin=0.25)
     Pipeline(domain, s, answerer=FakeAnswerer([]))
     assert seen["margin"] == 0.25
+
+
+from server.pipeline import compose_router_input
+
+
+def test_compose_router_input_formats_history_and_prev_route():
+    s = compose_router_input("배송비는요?", ["캔버스화 살 건데요", "사이즈 있나요"], "PRODUCT_INFO")
+    assert s.startswith("배송비는요?")
+    assert "[직전 문의] 캔버스화 살 건데요 / 사이즈 있나요" in s
+    assert "[직전 라우트] PRODUCT_INFO" in s
+    assert compose_router_input("배송비는요?", [], None) == "배송비는요?"
+
+
+def test_compose_router_input_keeps_last_two_only():
+    s = compose_router_input("q", ["a", "b", "c"], None)
+    assert "[직전 문의] b / c" in s and "a /" not in s
+
+
+class ScriptedRouter:
+    """턴마다 정해진 RouteDecision 을 내고, 받은 입력 문자열을 기록한다."""
+    def __init__(self, domain, decisions):
+        self.decisions = list(decisions)
+        self.inputs = []
+        self.graph = build_router(domain, 0.5, classify=self._classify)
+
+    def _classify(self, q):
+        self.inputs.append(q)
+        return self.decisions.pop(0)
+
+    def invoke(self, state):
+        return self.graph.invoke(state)
+
+
+def test_followup_inherits_previous_route(domain, settings):
+    router = ScriptedRouter(domain, [
+        RouteDecision(route="SHIPPING", confidence=0.9, reason="t"),
+        RouteDecision(route="PRODUCT_INFO", confidence=0.8, reason="t", is_followup=True),
+    ])
+    ans = FakeAnswerer([("2,500원입니다.", {"get_shipping_policy": {}}, []),
+                        ("무료배송 기준은 100,000원입니다.",
+                         {"get_shipping_policy": {"free_shipping_threshold": 100000}}, [])])
+    p = Pipeline(domain, settings, router=router, answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "캔버스화 배송비 얼마예요?")
+    r = p.turn(cid, "그럼 무료배송은요?")
+    assert r.route == "SHIPPING" and r.is_followup is True
+    assert "[직전 라우트] SHIPPING" in router.inputs[1]
+    assert "[직전 라우트]" not in router.inputs[0]
+
+
+def test_followup_does_not_inherit_other_route(domain, settings):
+    # 직전 라우트가 OTHER 면 이어받지 않고 라우터가 낸 현재 라우트를 쓴다
+    router = ScriptedRouter(domain, [
+        RouteDecision(route="OTHER", confidence=0.9, reason="t"),
+        RouteDecision(route="SHIPPING", confidence=0.8, reason="t", is_followup=True),
+    ])
+    ans = FakeAnswerer([("2,500원입니다.", {"get_shipping_policy": {}}, [])])
+    p = Pipeline(domain, settings, router=router, answerer=ans)
+    cid, _, _ = p.start_call()
+    r1 = p.turn(cid, "홍대점 몇 시까지 해요?")
+    assert r1.action == "OUT_OF_SCOPE"
+    r2 = p.turn(cid, "아 그럼 배송비는요?")
+    assert r2.route == "SHIPPING" and r2.is_followup is False
+    assert "[직전 라우트] OTHER" in router.inputs[1]
+
+
+def test_ask_turn_is_recorded_in_routes(domain, settings):
+    router = ScriptedRouter(domain, [
+        RouteDecision(route="SHIPPING", confidence=0.2, reason="t"),          # 확신도 미달 → ASK(되묻기)
+        RouteDecision(route="PRODUCT_INFO", confidence=0.9, reason="t", is_followup=True),
+    ])
+    ans = FakeAnswerer([("네 확인했습니다.", {"get_shipping_policy": {}}, [])])
+    p = Pipeline(domain, settings, router=router, answerer=ans)
+    cid, _, _ = p.start_call()
+    r1 = p.turn(cid, "그거요")
+    assert r1.action == "ASK"
+    r2 = p.turn(cid, "배송 문의요")
+    assert "[직전 라우트] SHIPPING" in router.inputs[1]
+    assert r2.route == "SHIPPING"

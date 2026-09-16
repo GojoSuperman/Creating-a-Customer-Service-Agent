@@ -115,3 +115,7 @@ def test_same_route_as_alt_is_treated_as_no_alternative(domain):
     g = build_router(domain, 0.5, classify=fixed_alt("SHIPPING", 0.6, "SHIPPING", 0.59), conf_margin=0.3)
     out = g.invoke({"question": "x"})
     assert out["action"] == "HANDLE" and out["route_alt"] is None and out["alt_confidence"] == 0.0
+
+
+def test_route_guide_explains_followup(domain):
+    assert "is_followup" in build_route_guide(domain)

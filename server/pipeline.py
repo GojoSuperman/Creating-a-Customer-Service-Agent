@@ -93,6 +93,8 @@ class AgentState(TypedDict, total=False):
     confidence: float
     route_alt: Optional[str]
     alt_confidence: float
+    routes: Annotated[list, operator.add]   # 리듀서: 턴마다 라우팅 판단 한 건이 쌓인다
+    is_followup: bool
     action: str        # HANDLE / ASK / ANSWER / RETRY / ESCALATE / OUT_OF_SCOPE
     tools: list
     results: dict
@@ -117,9 +119,23 @@ class TurnResult:
     attempts: int
     route_alt: Optional[str] = None
     alt_confidence: Optional[float] = None
+    is_followup: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def compose_router_input(question: str, history: list, prev_route: Optional[str]) -> str:
+    """라우터 입력 문자열. 현재 문의를 앞에 두고 최근 두 발화와 직전 라우트를 뒤에 붙인다.
+    (긴 통화일수록 앞 turn 이 라우팅을 오염시키는 걸 줄이기 위해 두 발화만 본다.)
+    eval_router --multiturn 이 같은 함수를 써서 평가와 런타임의 입력이 같다."""
+    q = question
+    hist = (history or [])[-2:]
+    if hist:
+        q += f"\n[직전 문의] {' / '.join(hist)}"
+    if prev_route:
+        q += f"\n[직전 라우트] {prev_route}"
+    return q
 
 
 class Pipeline:
@@ -143,15 +159,18 @@ class Pipeline:
 
     # ── 노드 ──────────────────────────────────────────────
     def _node_route(self, state: AgentState) -> AgentState:
-        # state 에는 전체 history 를 그대로 쌓아 두고, 라우터는 최근 두 발화만 본다
-        # (긴 통화일수록 앞 turn 이 라우팅을 오염시키는 걸 줄이기 위한 최소 완화책).
-        hist = (state.get("history") or [])[-2:]
-        q = state["question"]
-        if hist:
-            q = f"{q} (직전 발화: {' / '.join(hist)})"   # 현재 문의를 앞에 둬 라우팅이 이력에 끌리지 않게
+        routes = state.get("routes") or []
+        prev = routes[-1]["route"] if routes else None
+        q = compose_router_input(state["question"], state.get("history") or [], prev)
         r = self.router.invoke({"question": q})
-        base = {"route": r["route"], "confidence": r["confidence"], "action": r["action"],
+        route = r["route"]
+        followup = bool(r.get("is_followup")) and prev is not None and prev != "OTHER"
+        if followup:
+            route = prev   # 후속 발화는 라우트만 이어받고, 확신도 판정(action)은 라우터 결과를 그대로 쓴다
+        base = {"route": route, "confidence": r["confidence"], "action": r["action"],
                 "route_alt": r.get("route_alt"), "alt_confidence": r.get("alt_confidence", 0.0),
+                "is_followup": followup,
+                "routes": [{"route": route, "confidence": r["confidence"], "is_followup": followup}],
                 "attempts": 0, "tools": [], "results": {}, "guardrail": None}
         count = state.get("clarify_count", 0)
         if r["action"] == "ESCALATE" and count < self.settings.clarify_max:
@@ -339,9 +358,11 @@ class Pipeline:
             "q": text, "route": out.get("route"), "action": action,
             "tools": [t["name"] for t in (out.get("tools") or [])],
             "guardrail_ok": g.get("ok") if g else None,
+            "followup": out.get("is_followup", False),
         })
         return TurnResult(answer=out["answer"], route=out.get("route"), confidence=out.get("confidence"),
                           action=action, tools=out.get("tools") or [], guardrail=out.get("guardrail"),
                           elapsed_ms=int((time.perf_counter() - t0) * 1000), end_call=end,
                           attempts=out.get("attempts", 0),
-                          route_alt=out.get("route_alt"), alt_confidence=out.get("alt_confidence"))
+                          route_alt=out.get("route_alt"), alt_confidence=out.get("alt_confidence"),
+                          is_followup=out.get("is_followup", False))
