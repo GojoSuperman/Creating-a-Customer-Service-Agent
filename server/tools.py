@@ -83,15 +83,10 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
             else:
                 tokens.append(t)
         qt = tokens
-        # 2) 범주어 사전. 문장 속 어디에 있어도 잡는다
-        for t in qt:
-            if t in aliases:
-                ids = aliases[t]
-                cands = _candidates_for_ids(ids)
-                return {"query": query, "candidates": cands,
-                        "resolved_product_id": ids[0] if len(ids) == 1 else None,
-                        "ambiguous": len(ids) > 1, "category_query": True, "not_in_catalog": False,
-                        "note": "범주 질의입니다. 후보 중 어느 상품인지 고객에게 확인하십시오." if len(ids) > 1 else None}
+        has_alias_token = any(t in aliases for t in qt)
+
+        # 2) 상품명 검색(토큰 겹침/difflib)을 먼저 시도한다. 유일한 최고 점수 후보가 있으면
+        #    그것을 바로 확정한다 — 범주어 사전(팬티 등)이 정확한 상품명 일치를 가려서는 안 된다.
         flat_q = query.replace(" ", "")
         hits = []
         for pid, p in products.items():
@@ -113,11 +108,28 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
         ambiguous = len(top) > 1
         # not_in_catalog 은 동의어 사전(search.synonyms 의 null 값)에서만 판정한다.
         # 여기(이름 검색)의 빈 후보는 오타·표현 차이일 수 있으므로 미취급 단정 대신 되묻기로 처리한다.
-        return {"query": query, "candidates": hits[:5],
-                "resolved_product_id": top[0]["product_id"] if len(top) == 1 else None,
-                "ambiguous": ambiguous, "category_query": False,
-                "not_in_catalog": False,
-                "note": "후보가 여러 개입니다. 어느 상품인지 고객에게 확인하십시오." if ambiguous else None}
+        name_result = {"query": query, "candidates": hits[:5],
+                       "resolved_product_id": top[0]["product_id"] if len(top) == 1 else None,
+                       "ambiguous": ambiguous, "category_query": False,
+                       "not_in_catalog": False,
+                       "note": "후보가 여러 개입니다. 어느 상품인지 고객에게 확인하십시오." if ambiguous else None}
+        if len(top) == 1:
+            result = dict(name_result)
+            result["category_query"] = has_alias_token
+            return result
+
+        # 3) 유일한 상품명 일치가 없을 때만 범주어 사전으로 넘어간다. 문장 속 어디에 있어도 잡는다
+        for t in qt:
+            if t in aliases:
+                ids = aliases[t]
+                cands = _candidates_for_ids(ids)
+                return {"query": query, "candidates": cands,
+                        "resolved_product_id": ids[0] if len(ids) == 1 else None,
+                        "ambiguous": len(ids) > 1, "category_query": True, "not_in_catalog": False,
+                        "note": "범주 질의입니다. 후보 중 어느 상품인지 고객에게 확인하십시오." if len(ids) > 1 else None}
+
+        # 4) 범주어도 없으면 상품명 검색 결과를 그대로 돌려준다(모호하거나 후보 없음 포함)
+        return name_result
 
     def get_order_status(order_id: str) -> dict:
         """주문번호로 주문의 현재 진행 단계와 배송 정보를 조회한다."""

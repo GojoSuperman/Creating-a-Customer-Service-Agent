@@ -5,6 +5,7 @@ import math
 import re
 from pathlib import Path
 
+from server.guardrail import normalize_korean_myriad
 from server.pipeline import ASK_PATTERN, infer_action
 
 
@@ -81,8 +82,8 @@ def score_regression(expect: dict, answer: str, action: str) -> tuple:
     allowed = expect["action"]
     if action not in allowed:
         fails.append(f"action: {action} 는 허용 목록 {allowed} 에 없음")
-    a = norm_num(answer)
+    a = norm_num(normalize_korean_myriad(answer))
     for f in expect.get("forbid", []):
-        if norm_num(f) in a:
+        if norm_num(normalize_korean_myriad(f)) in a:
             fails.append(f'forbid 위반: "{f}"')
     return (not fails), fails

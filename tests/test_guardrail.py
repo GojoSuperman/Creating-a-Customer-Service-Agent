@@ -154,5 +154,32 @@ def test_normalize_korean_myriad_man_only():
 
 def test_normalize_korean_myriad_man_only_no_won():
     from server.guardrail import normalize_korean_myriad
-    
+
     assert normalize_korean_myriad("3만") == "30000"
+
+
+def test_normalize_korean_myriad_man_cheon_no_unit_merges(domain):
+    # F4: "(?=\s*원)" 이었던 예전 lookahead 는 "5만 3천"(뒤에 "원"이 없는 경우)을
+    # 50000 3000 으로 쪼갰다. 만 단위는 뒤에 수량/날짜 단위가 없으면 합쳐져야 한다.
+    from server.guardrail import normalize_korean_myriad
+    assert normalize_korean_myriad("가격은 5만 3천입니다") == "가격은 53000입니다"
+
+
+def test_normalize_korean_myriad_man_followed_by_count_not_merged(domain):
+    from server.guardrail import normalize_korean_myriad
+    assert normalize_korean_myriad("5만 3개") == "50000 3개"
+
+
+def test_normalize_korean_myriad_man_cheon_won_merges(domain):
+    from server.guardrail import normalize_korean_myriad
+    assert normalize_korean_myriad("10만 5천원") == "105000원"
+
+
+def test_normalize_korean_myriad_man_cheon_then_count(domain):
+    from server.guardrail import normalize_korean_myriad
+    assert normalize_korean_myriad("5만 3천 3개") == "53000 3개"
+
+
+def test_normalize_korean_myriad_man_followed_by_date_not_merged(domain):
+    from server.guardrail import normalize_korean_myriad
+    assert normalize_korean_myriad("3만 2일 후") == "30000 2일 후"

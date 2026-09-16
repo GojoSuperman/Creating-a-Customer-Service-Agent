@@ -33,7 +33,7 @@ def build_answer_rules(domain: Domain) -> str:
 1단계. 고객이 상품을 이름으로 말했으면 search_product 를 부른다. 상품 ID(P0000 형태)를 이미
        알고 있을 때만 건너뛴다.
 2단계. search_product 결과에 resolved_product_id 가 있으면 그 ID로 필요한 조회 도구를 부른다.
-       ambiguous 가 true 이거나 후보가 비어 있으면 조회하지 말고 어느 상품인지 되묻는다.
+       ambiguous 가 true 이거나 (후보가 비어 있고 not_in_catalog 가 false 이면) 조회하지 말고 어느 상품인지 되묻는다.
        category_query 가 true 이고 후보가 여럿이면 후보 상품명을 읽어 주며 어느 것인지 되묻는다.
        not_in_catalog 가 true 이면 취급하지 않는 상품임을 안내하고 조회하지 않는다.
 3단계. 주문·반품 이야기가 나오면 주문번호(O-0000)로 해당 조회 도구를 부른다. 주문번호를 모르면 되묻는다.

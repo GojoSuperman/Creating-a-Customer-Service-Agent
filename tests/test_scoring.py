@@ -70,6 +70,14 @@ def test_score_regression():
     assert not ok and any(f.startswith("action") for f in fails) and any("forbid" in f for f in fails)
 
 
+def test_score_regression_forbid_normalizes_man_cheon():
+    # forbid 값이 아라비아 숫자("40000")라도 답변 속 "4만원" 은 같은 값으로 정규화되어야 걸린다(F2).
+    ok, fails = score_regression({"action": ["ANSWER"], "forbid": ["40000"]},
+                                 "무료배송 기준은 4만원입니다.", "ANSWER")
+    assert not ok
+    assert any("forbid" in f for f in fails)
+
+
 def test_regression_cases_load(modumall_dir):
     cases = load_regression_cases(modumall_dir / "eval" / "regression_cases.json")
     assert len(cases) >= 6

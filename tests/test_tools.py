@@ -127,6 +127,22 @@ def test_existing_name_search_unchanged(tools):
     assert r["resolved_product_id"] == "P4001" and r["category_query"] is False
 
 
+def test_exact_product_name_beats_alias(tools):
+    # "팬티" 는 범주어 사전에 있지만, 문장 전체로 보면 상품명 "브라·팬티 세트" 와 유일하게
+    # 가장 높은 점수로 겹친다. 범주어 사전이 정확한 상품명 일치를 가려서는 안 된다(F1).
+    r = tools["search_product"]("브라·팬티 세트 80A로 살 건데 팬티는 몇 사이즈로 와요?")
+    assert r["resolved_product_id"] == "P1003"
+    assert r["ambiguous"] is False
+
+
+def test_alias_used_when_name_search_ambiguous(tools):
+    # "세트" 는 여러 상품명과 동점으로 겹쳐 상품명 검색이 유일한 후보를 내지 못한다.
+    # 이때는 "화장품" 이 범주어 사전에 있으므로 범주어 후보로 되돌아간다(F1).
+    r = tools["search_product"]("화장품 세트")
+    assert r["ambiguous"] is True and r["category_query"] is True
+    assert {c["product_id"] for c in r["candidates"]} == {"P5001", "P5002", "P5003"}
+
+
 def test_find_identifiers():
     assert find_identifiers("O-1006 반품 배송비 누가 내요?") == {"product_id": None, "order_id": "O-1006"}
     assert find_identifiers("P4001 배송비") == {"product_id": "P4001", "order_id": None}

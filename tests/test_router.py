@@ -65,3 +65,4 @@ def test_answer_rules_mention_procedure(domain):
     assert "search_product" in rules
     assert "null" in rules
     assert domain.name in rules
+    assert "not_in_catalog 가 false" in rules
