@@ -23,7 +23,9 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {} } = {}) {
   function pickVoice() {
     const all = synth ? synth.getVoices() : [];
     const ko = all.filter(v => v.lang && v.lang.toLowerCase().startsWith("ko"));
-    return ko[0] || all[0] || null;
+    // 엣지가 제공하는 신경망 음성(Natural / Online)이 있으면 그것을 먼저 고른다 — 무료이고 발음이 훨씬 낫다
+    const natural = ko.find(v => /natural|online/i.test(v.name));
+    return natural || ko[0] || all[0] || null;
   }
   if (synth) {
     voice = pickVoice();

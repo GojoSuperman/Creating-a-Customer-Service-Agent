@@ -66,6 +66,6 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 
 - 상품명 연결이 토큰 겹침 + 오타 보정 수준이다. 실서비스는 임베딩 검색이 필요하다.
 - 체크포인터는 메모리라 서버 재시작 시 통화가 사라진다.
-- 음성 인식은 크롬·엣지의 Web Speech API에 의존한다. 음성 합성은 OpenAI TTS(`TTS_MODEL`, 기본 gpt-4o-mini-tts)를 쓰고, 비우면 브라우저 음성으로 돌아간다. 브라우저 음성은 엣지에서 'Online (Natural)' 계열이 자연스럽다.
+- 음성 인식은 크롬·엣지의 Web Speech API에 의존한다. 음성 합성은 기본이 브라우저 음성(무료)이며, 엣지에서는 "Online (Natural)" 계열 한국어 음성을 자동으로 고른다. `TTS_MODEL=gpt-4o-mini-tts`를 설정하면 화면에서 OpenAI 음성(유료)을 선택할 수 있다.
 
 모델명은 날짜 고정 버전을 쓰는 것이 안전하다(`ROUTER_MODEL=gpt-4.1-mini-2025-04-14` 처럼). 제공사가 별칭의 가중치를 조용히 바꾸면 회귀 스위트로만 알 수 있다.

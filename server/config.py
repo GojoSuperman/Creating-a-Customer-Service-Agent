@@ -21,7 +21,7 @@ class Settings:
     domains_root: Path
     logs_dir: Path
     clarify_max: int
-    tts_model: str = "gpt-4o-mini-tts"
+    tts_model: str = ""
     tts_voice: str = "nova"
 
 
@@ -36,6 +36,6 @@ def load_settings() -> Settings:
         domains_root=ROOT / "domains",
         logs_dir=ROOT / "logs",
         clarify_max=int(os.environ.get("CLARIFY_MAX", "1")),
-        tts_model=os.environ.get("TTS_MODEL", "gpt-4o-mini-tts"),
+        tts_model=os.environ.get("TTS_MODEL", ""),
         tts_voice=os.environ.get("TTS_VOICE", "nova"),
     )
