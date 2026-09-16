@@ -40,8 +40,11 @@ async function startCall() {
   setPhase("RINGING");
   await playRing(1500);
   if (gen !== state.gen) return;
-  const r = await fetch("/api/call/start", { method: "POST" }).then(r => r.json());
+  const phone = $("phone-input").value || null;
+  const r = await fetch("/api/call/start", { method: "POST", headers: { "Content-Type": "application/json" },
+                                             body: JSON.stringify({ phone }) }).then(r => r.json());
   if (gen !== state.gen) return;
+  panel.setCustomer(r.customer || null);
   state.callId = r.call_id; state.startedAt = Date.now();
   clearInterval(state.timer);
   state.timer = setInterval(() => {
@@ -122,6 +125,10 @@ function endCall(reason = "통화를 끊었습니다") {
   clearInterval(state.timer);
   setPhase("ENDED");
   addBubble("system", `${reason} · ${$("clock").textContent} · ${state.turns}턴`);
+  if (state.callId) {
+    fetch("/api/call/end", { method: "POST", headers: { "Content-Type": "application/json" },
+                             body: JSON.stringify({ call_id: state.callId }) }).catch(() => {});
+  }
   state.callId = null;
 }
 
@@ -151,6 +158,9 @@ $("voice-select").onchange = (e) => { const v = voice.listVoices()[e.target.valu
 (async () => {
   const d = await fetch("/api/domain").then(r => r.json());
   $("shop-name").textContent = d.name;
+  $("sample-select").innerHTML = '<option value="">샘플 고객 선택…</option>' +
+    (d.sample_customers || []).map(c => `<option value="${c.phone}">${c.name} · ${c.phone}</option>`).join("");
+  $("sample-select").onchange = (e) => { if (e.target.value) $("phone-input").value = e.target.value; };
   // 기본은 무료인 브라우저 음성. 서버 TTS 가 설정된 경우에만 OpenAI 를 고를 수 있다
   if (!d.tts_available) $("engine-select").querySelector('option[value="server"]').disabled = true;
   if (!voice.supported.recognition) enableTextOnly("이 브라우저는 음성 인식을 지원하지 않습니다. 크롬 또는 엣지를 권장합니다.");

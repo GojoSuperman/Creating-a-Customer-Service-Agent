@@ -14,6 +14,9 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 
 `.env`에 실제 `OPENAI_API_KEY`를 입력해야 `python -m server` 실행과 LLM 평가 스크립트가 작동합니다.
 
+데이터는 첫 실행 시 자동 생성됩니다(`domains/modumall/modumall.db`). 다시 만들려면
+`python -m server.db.generate --force`.
+
 ## 구조
 
 | 경로 | 역할 |
@@ -24,6 +27,8 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 | `server/answer.py` | 도구 호출 루프 |
 | `server/guardrail.py` | 숫자 출처 역추적, 미확정값 확답 검사 |
 | `server/pipeline.py` | 전체 그래프 + 통화별 체크포인터 |
+| `server/db/` | 실측 기반 목 데이터 생성기 (SQLite) |
+| `server/repo.py` | SQLite 읽기 저장소 계층 |
 | `server/app.py` | FastAPI |
 | `web/` | 전화 화면 (voice.js 가 음성 모듈 — 브라우저/OpenAI TTS 전환) |
 | `domains/<이름>/` | 도메인 데이터 |
@@ -42,6 +47,7 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 .venv/bin/python -m eval.eval_hard --rule        # 어려운 케이스 72건, 되묻기 정책 비교 (키 불필요)
 .venv/bin/python -m eval.eval_answer --workers 1 # 정답셋 첫 턴 34건 중 자동 판정 가능한 32건 (--runs 3 플랩 감지; gpt-4.1 TPM 30k 한도라 workers 1 권장)
 .venv/bin/python -m eval.eval_regression --runs 3   # 인젝션·없는 ID 회귀 스위트 (키 필요)
+.venv/bin/python -m eval.eval_context            # 고객 컨텍스트 효과: 비회원 vs 식별된 고객 자동화율 비교 (키 필요)
 .venv/bin/pytest -q                              # 단위 테스트 (키 불필요)
 ```
 
@@ -66,6 +72,7 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 
 - 상품명 연결이 토큰 겹침 + 오타 보정 수준이다. 실서비스는 임베딩 검색이 필요하다.
 - 체크포인터는 메모리라 서버 재시작 시 통화가 사라진다.
+- 전화번호만으로 고객을 식별한다(본인 인증 없음). 환불 계좌 변경 같은 민감 처리는 이관으로 뺀다.
 - 음성 인식은 크롬·엣지의 Web Speech API에 의존한다. 음성 합성은 기본이 브라우저 음성(무료)이며, 엣지에서는 "Online (Natural)" 계열 한국어 음성을 자동으로 고른다. `TTS_MODEL=gpt-4o-mini-tts`를 설정하면 화면에서 OpenAI 음성(유료)을 선택할 수 있다.
 
 모델명은 날짜 고정 버전을 쓰는 것이 안전하다(`ROUTER_MODEL=gpt-4.1-mini-2025-04-14` 처럼). 제공사가 별칭의 가중치를 조용히 바꾸면 회귀 스위트로만 알 수 있다.

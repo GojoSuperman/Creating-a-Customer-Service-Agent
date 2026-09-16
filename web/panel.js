@@ -3,8 +3,29 @@ export function createPanel(root) {
   const THRESHOLD = 0.5;
   function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+  function orderLine(o) {
+    const d = o.ordered_at ? `${parseInt(o.ordered_at.slice(5, 7), 10)}월 ${parseInt(o.ordered_at.slice(8, 10), 10)}일` : "-";
+    const amount = o.order_amount != null ? `${Number(o.order_amount).toLocaleString()}원` : "-";
+    return `${esc(o.order_id)} · ${esc(d)} · ${esc(o.status || "-")} · ${esc(o.items_summary || "")} · ${esc(amount)}`;
+  }
+
   return {
-    clear() { root.innerHTML = ""; },
+    clear() {
+      const card = document.getElementById("customer-card");
+      root.innerHTML = "";
+      if (card) root.appendChild(card);
+    },
+    setCustomer(c) {
+      const old = document.getElementById("customer-card");
+      if (old) old.remove();
+      if (!c) return;
+      const card = document.createElement("article");
+      card.id = "customer-card";
+      card.className = "customer-card";
+      const orders = (c.recent_orders || []).slice(0, 3).map(o => `<li>${orderLine(o)}</li>`).join("") || "<li class='muted'>최근 주문 없음</li>";
+      card.innerHTML = `<div class="name">${esc(c.name)}</div><ul>${orders}</ul>`;
+      root.prepend(card);
+    },
     addTurn(question, r) {
       const low = r.confidence != null && r.confidence < THRESHOLD;
       const retried = (r.attempts || 0) > 1;
