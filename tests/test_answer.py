@@ -111,3 +111,13 @@ def test_recursion_limit_keeps_tool_call_record(domain):
     text, results, calls = Answerer(domain, llm=RunnableLambda(lambda m: forever), max_tool_turns=2).answer("세트", "PRODUCT_INFO")
     assert text == domain.escalate_message
     assert len(calls) >= 1 and calls[0]["name"] == "search_product"
+
+
+def test_customer_block_in_system_prompt(domain):
+    seen = {}
+    def capture(messages):
+        seen["system"] = [m for m in messages if getattr(m, "type", "") == "system"][0].content
+        return AIMessage(content="네.")
+    Answerer(domain, llm=RunnableLambda(capture)).answer("그 주문 언제 와요", "SHIPPING",
+        customer={"name": "홍길동", "customer_id": "C-0001", "recent_orders": [{"order_id": "O-1001", "ordered_at": "2026-09-15T10:00:00", "status": "결제완료", "items_summary": "캔버스화", "order_amount": 59000}]})
+    assert "===== 통화 고객 =====" in seen["system"] and "O-1001" in seen["system"] and "홍길동" in seen["system"]

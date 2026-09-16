@@ -28,7 +28,8 @@ def main():
     for c in cases:
         runs = []
         for _ in range(args.runs):
-            r = pipeline.turn(pipeline.start_call(), c["question"])
+            cid, _, _ = pipeline.start_call()
+            r = pipeline.turn(cid, c["question"])
             ok, fails = score_regression(c["expect"], r.answer, r.action)
             runs.append((ok, fails, r))
         verdict = aggregate_runs([ok for ok, _, _ in runs])

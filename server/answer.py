@@ -23,12 +23,25 @@ from server.prompts import build_answer_rules
 from server.tools import make_tools
 
 
-def build_answer_prompt(domain: Domain, route: str, tool_results: Optional[dict] = None) -> str:
+def customer_block(customer: Optional[dict]) -> str:
+    """통화 중인 고객 정보를 시스템 프롬프트 끝에 덧붙일 블록으로 만든다."""
+    if not customer:
+        return ""
+    lines = [f"이름: {customer['name']} (고객번호 {customer['customer_id']})"]
+    for o in customer.get("recent_orders", []):
+        lines.append(f"- {o['order_id']} · {o['ordered_at'][:10]} 주문 · {o.get('status')} · "
+                     f"{o.get('items_summary', '')} · {o.get('order_amount')}원")
+    return "\n===== 통화 고객 =====\n" + "\n".join(lines) + "\n"
+
+
+def build_answer_prompt(domain: Domain, route: str, tool_results: Optional[dict] = None,
+                        customer: Optional[dict] = None) -> str:
     ctx = build_context(domain, route)
     tr = json.dumps(tool_results or {}, ensure_ascii=False, indent=1)
     return (f"{build_answer_rules(domain)}\n"
             f"===== 업무 매뉴얼 (라우트: {route}) =====\n{ctx}\n\n"
-            f"===== 조회 결과 =====\n{tr}\n")
+            f"===== 조회 결과 =====\n{tr}\n"
+            f"{customer_block(customer)}")
 
 
 class ToolState(TypedDict, total=False):
@@ -68,7 +81,7 @@ class Answerer:
         return g.compile()
 
     def answer(self, question: str, route: str, history: Optional[list[str]] = None,
-               feedback: Optional[str] = None):
+               feedback: Optional[str] = None, customer: Optional[dict] = None):
         """(답변 텍스트, {도구명: 결과}, [{"name", "args"}] 호출 순서) 를 돌려준다.
 
         같은 도구가 한 턴 안에서 여러 번 불리면 결과가 서로 덮어쓰지 않도록 첫 번째
@@ -89,7 +102,8 @@ class Answerer:
             full_q = question
         if feedback:
             full_q += f"\n\n[직전 답변 반려 사유] {feedback}\n조회 결과와 매뉴얼에 있는 값만 써서 다시 답하십시오."
-        init = {"messages": [("system", build_answer_prompt(self.domain, route)), ("human", full_q)]}
+        init = {"messages": [("system", build_answer_prompt(self.domain, route, customer=customer)),
+                             ("human", full_q)]}
         calls: list[dict] = []
         out = init
         exhausted = False

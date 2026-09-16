@@ -8,10 +8,14 @@ from server.pipeline import TurnResult
 class FakePipeline:
     def __init__(self):
         self.calls = set()
+        self.ended = []
 
-    def start_call(self):
+    def start_call(self, phone=None):
         self.calls.add("abc")
-        return "abc"
+        return "abc", "안녕하세요", None
+
+    def end_call(self, call_id):
+        self.ended.append(call_id)
 
     def turn(self, call_id, text):
         if call_id not in self.calls:
@@ -69,6 +73,16 @@ def test_tts_501_when_not_configured(client):
     r = client.post("/api/tts", json={"text": "안녕하세요"})
     assert r.status_code == 501
     assert client.get("/api/domain").json()["tts_available"] is False
+
+
+def test_start_call_accepts_phone(client):
+    r = client.post("/api/call/start", json={"phone": "010-1111-2222"}).json()
+    assert r["call_id"] == "abc" and "customer" in r
+    assert client.get("/api/domain").json()["sample_customers"] == []   # FakePipeline 는 샘플 없음
+
+
+def test_end_call(client):
+    assert client.post("/api/call/end", json={"call_id": "abc"}).json() == {"ok": True}
 
 
 def test_tts_returns_audio_when_configured(modumall_dir):

@@ -42,6 +42,7 @@ class Domain:
     clarify_message: str
     search: dict
     db_path: Path
+    greeting_known: str
 
 
 def load_domain(path: Path) -> Domain:
@@ -74,6 +75,8 @@ def load_domain(path: Path) -> Domain:
         labels = ", ".join(routes[k].label for k in ROUTES if k != "OTHER")
         clarify = f"죄송하지만 정확히 확인해 드리기 위해 여쭤봅니다. {labels} 중 어떤 문의이신지 말씀해 주시겠어요?"
 
+    greeting_known = cfg.get("greeting_known") or "{name} 고객님, 안녕하세요. {shop} 고객센터입니다. 무엇을 도와드릴까요?"
+
     search = cfg.get("search") or {}
     search = {"synonyms": dict(search.get("synonyms") or {}), "aliases": dict(search.get("aliases") or {})}
     product_ids = {p["product_id"] for p in mockdb["products"]}
@@ -101,6 +104,7 @@ def load_domain(path: Path) -> Domain:
         clarify_message=clarify,
         search=search,
         db_path=db_path,
+        greeting_known=greeting_known,
     )
 
     # server.context 가 Domain 을 import 하므로 모듈 최상단에서 맞물리면 순환 import가

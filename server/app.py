@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""FastAPI 앱. 정적 화면을 서빙하고 통화 API 3개를 제공한다."""
+"""FastAPI 앱. 정적 화면을 서빙하고 통화 API를 제공한다."""
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -10,6 +11,14 @@ from pydantic import BaseModel, field_validator
 from server.domain import Domain
 
 WEB = Path(__file__).resolve().parent.parent / "web"
+
+
+class StartRequest(BaseModel):
+    phone: Optional[str] = None
+
+
+class EndRequest(BaseModel):
+    call_id: str
 
 
 class TtsRequest(BaseModel):
@@ -44,11 +53,20 @@ def create_app(pipeline, domain: Domain, tts=None) -> FastAPI:
 
     @app.get("/api/domain")
     def get_domain():
-        return {"name": domain.name, "greeting": domain.greeting, "tts_available": tts is not None}
+        sample_customers = pipeline.sample_customers() if hasattr(pipeline, "sample_customers") else []
+        return {"name": domain.name, "greeting": domain.greeting, "tts_available": tts is not None,
+                "sample_customers": sample_customers}
 
     @app.post("/api/call/start")
-    def start_call():
-        return {"call_id": pipeline.start_call(), "greeting": domain.greeting}
+    def start_call(req: Optional[StartRequest] = None):
+        phone = req.phone if req else None
+        call_id, greeting, customer = pipeline.start_call(phone=phone)
+        return {"call_id": call_id, "greeting": greeting, "customer": customer}
+
+    @app.post("/api/call/end")
+    def end_call(req: EndRequest):
+        pipeline.end_call(req.call_id)
+        return {"ok": True}
 
     @app.post("/api/call/turn")
     def turn(req: TurnRequest):

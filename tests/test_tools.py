@@ -28,7 +28,8 @@ def test_find_customer_by_phone_and_order(tools, modumall_dir):
     repo = Repo(load_domain(modumall_dir).db_path)
     phone = repo.customer(repo.order("O-1001")["customer_id"])["phone"]
     c = tools["find_customer"](phone=phone.replace("-", ""))
-    assert c["name"] and any(o["order_id"] == "O-1001" for o in c["recent_orders"]) or c["recent_orders"]
+    assert c["name"]
+    assert any(o["order_id"] == "O-1001" for o in c["recent_orders"])
     assert tools["find_customer"](order_id="O-1006")["customer_id"] == repo.order("O-1006")["customer_id"]
     assert "error" in tools["find_customer"](phone="010-0000-0000")
     assert "error" in tools["find_customer"]()
