@@ -111,10 +111,12 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
         hits.sort(key=lambda h: -h["score"])
         top = [h for h in hits if h["score"] == hits[0]["score"]] if hits else []
         ambiguous = len(top) > 1
+        # not_in_catalog 은 동의어 사전(search.synonyms 의 null 값)에서만 판정한다.
+        # 여기(이름 검색)의 빈 후보는 오타·표현 차이일 수 있으므로 미취급 단정 대신 되묻기로 처리한다.
         return {"query": query, "candidates": hits[:5],
                 "resolved_product_id": top[0]["product_id"] if len(top) == 1 else None,
                 "ambiguous": ambiguous, "category_query": False,
-                "not_in_catalog": not hits,
+                "not_in_catalog": False,
                 "note": "후보가 여러 개입니다. 어느 상품인지 고객에게 확인하십시오." if ambiguous else None}
 
     def get_order_status(order_id: str) -> dict:

@@ -111,6 +111,12 @@ def test_not_in_catalog(tools):
     assert r["candidates"] == [] and r["not_in_catalog"] is True
 
 
+def test_generic_no_hit_is_not_flagged_not_in_catalog(tools):
+    r = tools["search_product"]("가방끈")
+    assert r["candidates"] == [] and r["not_in_catalog"] is False
+    assert r["resolved_product_id"] is None
+
+
 def test_alias_inside_sentence(tools):
     r = tools["search_product"]("가방 하나 사려는데요")
     assert r["resolved_product_id"] == "P6002"
