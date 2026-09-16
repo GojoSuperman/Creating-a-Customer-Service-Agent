@@ -21,6 +21,18 @@ from server.domain import Domain
 ASK_PATTERN = r"\?|주시겠|알려주|말씀해"
 
 
+def infer_action(text: str, results: dict) -> str:
+    """평가 채점기와 런타임이 같은 판정을 쓴다.
+
+    반환값: "OUT_OF_SCOPE" (외부 채널) / "ASK" (질문 패턴) / "ANSWER" (기본값)
+    """
+    if results.get("get_order_status", {}).get("is_external_channel"):
+        return "OUT_OF_SCOPE"
+    if not results and re.search(ASK_PATTERN, text):
+        return "ASK"
+    return "ANSWER"
+
+
 class AgentState(TypedDict, total=False):
     question: str
     history: Annotated[list, operator.add]   # 리듀서: 턴마다 쌓인다
@@ -77,11 +89,13 @@ class Pipeline:
         text, results, calls = self.answerer.answer(state["question"], state["route"],
                                                     history=state.get("history") or [])
         attempts = state.get("attempts", 0) + 1
-        if results.get("get_order_status", {}).get("is_external_channel"):
+        action_inferred = infer_action(text, results)
+        if action_inferred == "OUT_OF_SCOPE":
             return {"action": "OUT_OF_SCOPE", "tools": calls, "results": results, "attempts": attempts}
-        if not results and re.search(ASK_PATTERN, text):
+        if action_inferred == "ASK":
             return {"action": "ASK", "tools": calls, "results": {}, "answer": text, "attempts": attempts,
                     "history": [state["question"]]}
+        # action_inferred == "ANSWER" → internal "HANDLE" action
         return {"action": "HANDLE", "tools": calls, "results": results, "answer": text, "attempts": attempts}
 
     def _node_guard(self, state: AgentState) -> AgentState:

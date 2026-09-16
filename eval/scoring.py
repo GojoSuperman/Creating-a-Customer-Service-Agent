@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from server.pipeline import ASK_PATTERN
+from server.pipeline import ASK_PATTERN, infer_action
 
 
 def norm_num(s) -> str:
@@ -30,14 +30,6 @@ def score_turn(expect: dict, answer: str, tools_called: list, action: str):
     return (not fails), fails
 
 
-def infer_action(text: str, results: dict) -> str:
-    if results.get("get_order_status", {}).get("is_external_channel"):
-        return "OUT_OF_SCOPE"
-    if not results and re.search(ASK_PATTERN, text):
-        return "ASK"
-    return "ANSWER"
-
-
 def load_first_turns(goldenset_path: Path) -> list[dict]:
     gold = json.loads(Path(goldenset_path).read_text(encoding="utf-8"))
     cases = []
@@ -45,8 +37,10 @@ def load_first_turns(goldenset_path: Path) -> list[dict]:
         q = next(t for t in c["turns"] if t["role"] == "customer")
         a = next((t for t in c["turns"] if t.get("expect")), None)
         if a:
+            # 턴 레벨 route 우선, 없으면 첫 번째 호프 (멀티턴 대화에서 첫 턴은 첫 호프에 속함)
+            route = a["expect"].get("route") or c["route"].split("→")[0].strip()
             cases.append({"conv_id": c["conv_id"], "question": q["text"],
-                          "route": c["route"].split("→")[-1].strip(), "expect": a["expect"]})
+                          "route": route, "expect": a["expect"]})
     return cases
 
 

@@ -49,6 +49,9 @@ def main():
         rows.append({"conv": c["conv_id"], "기대": c["expect"]["action"], "실제": action, "ok": ok,
                      "fails": "; ".join(fails), "answer": text})
     res = pd.DataFrame(rows)
+    if res.empty:
+        print("채점할 항목이 없습니다")
+        return
     print(f'\n채점 {len(res)}건 / 통과 {int(res["ok"].sum())}건 ({100 * res["ok"].mean():.1f}%)'
           f'   (자동 판정 불가 {len(cases) - len(scored)}건 제외)')
     print("\n[행동 판정 혼동] 행=기대, 열=실제")

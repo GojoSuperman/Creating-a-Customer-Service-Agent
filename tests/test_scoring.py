@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from eval.scoring import score_turn, infer_action, load_first_turns, self_check
+from server.domain import ROUTES
 
 
 def test_score_turn_passes_reference():
@@ -33,3 +34,18 @@ def test_goldenset_self_check_all_pass(modumall_dir):
     cases = load_first_turns(modumall_dir / "eval" / "answer_goldenset.json")
     assert len(cases) == 34
     assert self_check(cases) == []
+
+
+def test_first_turn_uses_turn_level_route(modumall_dir):
+    """멀티턴 대화에서 첫 턴의 route는 턴 레벨 값 (마지막 호프가 아님)"""
+    cases = load_first_turns(modumall_dir / "eval" / "answer_goldenset.json")
+
+    # C-014는 SHIPPING→RETURN_REFUND 대화이지만
+    # 첫 턴(turn 2)은 SHIPPING 단계에 속해야 함
+    c014 = next((c for c in cases if c["conv_id"] == "C-014"), None)
+    assert c014 is not None, "C-014 not found in goldenset"
+    assert c014["route"] == "SHIPPING", f"C-014 route should be SHIPPING, got {c014['route']}"
+
+    # 모든 경우의 route는 ROUTES에 속해야 함 (OTHER 제외 가능)
+    for case in cases:
+        assert case["route"] in ROUTES, f"{case['conv_id']}: {case['route']} not in {ROUTES}"
