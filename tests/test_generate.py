@@ -93,3 +93,24 @@ def test_generation_is_deterministic(modumall_dir_module, tmp_path):
         assert ca.execute(f"select count(*) from {t}").fetchone() == cb.execute(f"select count(*) from {t}").fetchone()
     assert ca.execute("select order_id, customer_id, order_amount from orders order by order_id").fetchall() == \
            cb.execute("select order_id, customer_id, order_amount from orders order by order_id").fetchall()
+
+
+def test_made_to_order_never_in_returns(db):
+    bad = db.execute("""
+        select r.return_id from returns r
+        join order_items i on i.order_id = r.order_id
+        join products p on p.product_id = i.product_id
+        where p.made_to_order = 1""").fetchall()
+    assert bad == []
+
+
+def test_status_distribution(db):
+    rows = db.execute("select order_id from orders where status = '제작중'").fetchall()
+    assert len(rows) >= 8
+    for (oid,) in rows:
+        order = db.execute("select shipped_at from orders where order_id=?", (oid,)).fetchone()
+        assert order["shipped_at"] is None
+        has_mto_item = db.execute("""
+            select 1 from order_items i join products p on p.product_id = i.product_id
+            where i.order_id=? and p.made_to_order = 1""", (oid,)).fetchone()
+        assert has_mto_item is not None, oid

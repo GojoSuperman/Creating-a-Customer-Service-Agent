@@ -180,7 +180,7 @@ class Gen:
             if sizes:
                 options["size"] = sizes
             size_chart = {s: f"{'발길이' if cat == 'SHOES' else '가슴'} {self.rnd.randint(60, 120)}cm" for s in sizes} if sizes else None
-            mto = cat == "APPAREL" and self.rnd.random() < 0.05
+            mto = cat == "APPAREL" and self.rnd.random() < 0.30
             p = {"product_id": pid, "name": name, "category": cat, "price": price, "stock": 0 if soldout else self.rnd.randint(3, 300),
                  "is_set": "세트" in name or "매" in name, "components": None, "material": self.rnd.choice(MATERIALS[cat]),
                  "origin": self.rnd.choice(ORIGINS), "has_quality_cert": cat == "ACCESSORY" and self.rnd.random() < 0.6,
@@ -218,11 +218,20 @@ class Gen:
             extra = 3000 if cust["address_region"] == "제주도서산간" else 0
             age = (TODAY - d).days
             r = self.rnd.random()
+            mto_pids = [i["product_id"] for i in items if self.products[i["product_id"]].get("made_to_order")]
+            is_mto = bool(mto_pids)
+            mto_days = None
+            if is_mto:
+                raw_days = self.products[mto_pids[0]].get("made_to_order_days")
+                mto_days = raw_days if isinstance(raw_days, int) else 14
             status, detail = "배송완료", "수령 완료"
             shipped = delivered = tracking = None
             invoice = True
             exp_ship = (d + timedelta(days=1 if int(ordered[11:13]) < 11 else 2)).isoformat()
-            if age <= 1 or r < 0.10:
+            if is_mto and age < mto_days:
+                status, detail, invoice = "제작중", "주문 제작 진행", False
+                exp_ship = (d + timedelta(days=mto_days)).isoformat()
+            elif age <= 1 or r < 0.10:
                 status, detail, invoice = "결제완료", "출고 대기", False
             elif age <= 4 or r < 0.25:
                 status, detail = "배송중", "간선 상차" if self.rnd.random() < 0.7 else "배송 지연"
@@ -232,7 +241,7 @@ class Gen:
                 shipped = dt(date.fromisoformat(exp_ship), 14)
                 delivered = dt(date.fromisoformat(exp_ship) + timedelta(days=1 if cust["address_region"] == "수도권" else 3), 16)
                 tracking = f"{self.rnd.randint(10**11, 10**12 - 1)}"
-                if r > 0.88:
+                if r > 0.88 and not is_mto:
                     status, detail = ("반품진행", "접수") if r < 0.96 else ("교환진행", "접수")
                     returns_pending.append((oid, status, items, amount, delivered))
             delay = 2 if detail == "배송 지연" else None
@@ -286,7 +295,7 @@ def generate(domain_dir: Path, force: bool = False) -> Path:
         return db_path
     seed = json.loads((domain_dir / "mockdb.json").read_text(encoding="utf-8"))
     tmp = db_path.with_suffix(".db.tmp")
-    for p in (tmp, tmp.with_suffix(".db.tmp-wal"), tmp.with_suffix(".db.tmp-shm")):
+    for p in (tmp, Path(str(tmp) + "-wal"), Path(str(tmp) + "-shm")):
         if p.exists():
             p.unlink()
     con = sqlite3.connect(tmp)
@@ -294,10 +303,13 @@ def generate(domain_dir: Path, force: bool = False) -> Path:
     g = Gen(con, seed, random.Random(SEED))
     g.refs(); g.canonical(); g.synth_customers(); g.synth_products(); g.synth_orders(); g.synth_restock()
     con.commit(); con.close()
+    for p in (Path(str(tmp) + "-wal"), Path(str(tmp) + "-shm")):
+        if p.exists():
+            p.unlink()
     if db_path.exists():
         db_path.unlink()
     tmp.rename(db_path)
-    for p in (db_path.with_suffix(".db-wal"), db_path.with_suffix(".db-shm")):
+    for p in (Path(str(db_path) + "-wal"), Path(str(db_path) + "-shm")):
         if p.exists():
             p.unlink()
     return db_path
