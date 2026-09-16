@@ -7,7 +7,7 @@
 import re
 from functools import lru_cache
 
-from server.domain import Domain
+from server.domain import Domain, DomainError
 
 
 def split_sections(text: str) -> dict[str, str]:
@@ -26,6 +26,22 @@ def split_sections(text: str) -> dict[str, str]:
 @lru_cache(maxsize=8)
 def _sections_for(policy_text: str) -> dict[str, str]:
     return split_sections(policy_text)
+
+
+def validate_sections(domain: Domain) -> None:
+    """always_sections 와 각 라우트 sections 가 매뉴얼에 실제로 존재하는지 확인한다.
+
+    조용히 빠지는 장(章)은 답변 근거가 몰래 사라지는 것과 같으므로, 로드 시점에
+    바로 DomainError 로 터뜨린다.
+    """
+    secs = split_sections(domain.policy_text)
+    for key in domain.always_sections:
+        if key not in secs:
+            raise DomainError(f"always_sections 의 '{key}' 가 매뉴얼에 없습니다")
+    for route_name, route_def in domain.routes.items():
+        for key in route_def.sections:
+            if key not in secs:
+                raise DomainError(f"routes.{route_name}.sections 의 '{key}' 가 매뉴얼에 없습니다")
 
 
 def build_context(domain: Domain, route: str) -> str:

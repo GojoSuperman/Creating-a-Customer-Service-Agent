@@ -67,15 +67,21 @@ class Answerer:
         g.add_edge("tools", "agent")
         return g.compile()
 
-    def answer(self, question: str, route: str, history: Optional[list[str]] = None):
+    def answer(self, question: str, route: str, history: Optional[list[str]] = None,
+               feedback: Optional[str] = None):
         """(답변 텍스트, {도구명: 결과}, [{"name", "args"}] 호출 순서) 를 돌려준다.
 
         같은 도구가 한 턴 안에서 여러 번 불리면 결과가 서로 덮어쓰지 않도록 첫 번째
         결과는 도구명 그대로(`results[name]`), 두 번째부터는 `f"{name}#2"`, `f"{name}#3"`, …
         키로 보존한다. 가드레일이 `results.values()` 에서 허용 숫자 집합을 뽑기 때문에,
         여기서 덮어써 버리면 앞선 호출의 숫자가 근거 없는 값으로 오판된다.
+
+        `feedback` 이 있으면 (가드레일 재시도) 사람 메시지 끝에 반려 사유 문단을
+        덧붙여 같은 프롬프트를 그대로 다시 보내지 않는다.
         """
         full_q = " ".join((history or []) + [question])
+        if feedback:
+            full_q += f"\n\n[직전 답변 반려 사유] {feedback}\n조회 결과와 매뉴얼에 있는 값만 써서 다시 답하십시오."
         init = {"messages": [("system", build_answer_prompt(self.domain, route)), ("human", full_q)]}
         calls: list[dict] = []
         try:

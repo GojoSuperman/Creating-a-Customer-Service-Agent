@@ -25,9 +25,17 @@ def infer_action(text: str, results: dict) -> str:
     """평가 채점기와 런타임이 같은 판정을 쓴다.
 
     반환값: "OUT_OF_SCOPE" (외부 채널) / "ASK" (질문 패턴) / "ANSWER" (기본값)
+
+    tools 결과는 오류 문자열일 수도 있고(모델이 잘못된 kwargs 를 넘기면 ToolNode 가
+    오류 텍스트를 저장한다), 같은 도구가 한 턴에 여러 번 불리면 `get_order_status#2`,
+    `#3` 같은 키로도 들어온다. 기본 이름이 `get_order_status` 인 모든 키를 훑되,
+    dict 값만 검사한다.
     """
-    if results.get("get_order_status", {}).get("is_external_channel"):
-        return "OUT_OF_SCOPE"
+    for key, value in (results or {}).items():
+        if key.split("#")[0] != "get_order_status":
+            continue
+        if isinstance(value, dict) and value.get("is_external_channel"):
+            return "OUT_OF_SCOPE"
     if not results and re.search(ASK_PATTERN, text):
         return "ASK"
     return "ANSWER"
@@ -80,21 +88,29 @@ class Pipeline:
 
     # ── 노드 ──────────────────────────────────────────────
     def _node_route(self, state: AgentState) -> AgentState:
-        q = " ".join((state.get("history") or []) + [state["question"]])
+        # state 에는 전체 history 를 그대로 쌓아 두고, 라우터는 최근 두 발화만 본다
+        # (긴 통화일수록 앞 turn 이 라우팅을 오염시키는 걸 줄이기 위한 최소 완화책).
+        hist = (state.get("history") or [])[-2:]
+        q = " ".join(hist + [state["question"]])
         r = self.router.invoke({"question": q})
         return {"route": r["route"], "confidence": r["confidence"], "action": r["action"],
                 "attempts": 0, "tools": [], "results": {}, "guardrail": None}
 
     def _node_answer(self, state: AgentState) -> AgentState:
+        guardrail_state = state.get("guardrail")
+        feedback = None
+        if guardrail_state and not guardrail_state.get("ok"):
+            feedback = "; ".join(f"{v['type']}: {v['detail']}" for v in guardrail_state["violations"])
         text, results, calls = self.answerer.answer(state["question"], state["route"],
-                                                    history=state.get("history") or [])
+                                                    history=state.get("history") or [],
+                                                    feedback=feedback)
         attempts = state.get("attempts", 0) + 1
         action_inferred = infer_action(text, results)
         if action_inferred == "OUT_OF_SCOPE":
             return {"action": "OUT_OF_SCOPE", "tools": calls, "results": results, "attempts": attempts}
         if action_inferred == "ASK":
             return {"action": "ASK", "tools": calls, "results": {}, "answer": text, "attempts": attempts,
-                    "history": [state["question"]]}
+                    "history": [state["question"]], "guardrail": None}
         # action_inferred == "ANSWER" → internal "HANDLE" action
         return {"action": "HANDLE", "tools": calls, "results": results, "answer": text, "attempts": attempts}
 

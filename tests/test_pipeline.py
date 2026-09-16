@@ -2,7 +2,7 @@ import pytest
 from server.config import Settings
 from server.domain import load_domain
 from server.router import RouteDecision, build_router
-from server.pipeline import Pipeline
+from server.pipeline import Pipeline, infer_action
 
 
 @pytest.fixture
@@ -21,9 +21,12 @@ class FakeAnswerer:
     def __init__(self, script):
         self.script = list(script)   # [(text, results, calls), ...]
         self.questions = []
+        self.calls_kwargs = []
 
-    def answer(self, question, route, history=None):
+    def answer(self, question, route, history=None, feedback=None):
         self.questions.append((question, history or []))
+        self.calls_kwargs.append({"question": question, "route": route,
+                                  "history": history or [], "feedback": feedback})
         return self.script.pop(0)
 
 
@@ -102,3 +105,37 @@ def test_unknown_call_id(domain, settings):
     p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=FakeAnswerer([]))
     with pytest.raises(KeyError):
         p.turn("nope", "x")
+
+
+def test_infer_action_tolerates_error_string():
+    # ToolNode 가 잘못된 kwargs 호출 시 오류 텍스트를 결과에 담는 경우, dict 가 아니므로
+    # is_external_channel 을 찾으려다 예외가 나면 안 된다.
+    action = infer_action("확인했습니다.", {"get_order_status": "Error invoking tool with kwargs"})
+    assert action == "ANSWER"
+
+
+def test_infer_action_sees_repeated_keys():
+    # 같은 도구가 한 턴에 여러 번 불리면 results 에 get_order_status#2, #3 처럼 쌓인다.
+    results = {"get_order_status": {"error": "x"}, "get_order_status#2": {"is_external_channel": True}}
+    assert infer_action("확인했습니다.", results) == "OUT_OF_SCOPE"
+
+
+def test_retry_passes_guardrail_feedback(domain, settings):
+    bad = ("무료배송 기준은 40,000원 이상입니다.", {"get_shipping_policy": {"free_shipping_threshold": 100000}}, [])
+    good = ("무료배송 기준은 100,000원 이상입니다.", {"get_shipping_policy": {"free_shipping_threshold": 100000}}, [])
+    ans = FakeAnswerer([bad, good])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    p.turn(p.start_call(), "P4001 무료배송?")
+    assert len(ans.calls_kwargs) == 2
+    assert ans.calls_kwargs[0]["feedback"] is None
+    feedback = ans.calls_kwargs[1]["feedback"]
+    assert feedback and "출처 불명" in feedback
+
+
+def test_ask_after_retry_clears_stale_guardrail(domain, settings):
+    bad = ("무료배송 기준은 40,000원 이상입니다.", {"get_shipping_policy": {"free_shipping_threshold": 100000}}, [])
+    ask = ("어떤 상품인지 말씀해 주시겠어요?", {}, [])
+    ans = FakeAnswerer([bad, ask])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    r = p.turn(p.start_call(), "P4001 무료배송?")
+    assert r.action == "ASK" and r.guardrail is None

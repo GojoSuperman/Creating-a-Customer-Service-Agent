@@ -41,3 +41,15 @@ def test_routes_must_be_exactly_five(tmp_path, modumall_dir):
     with pytest.raises(DomainError) as e:
         load_domain(tmp_path)
     assert "OTHER" in str(e.value)
+
+
+def test_missing_always_section_is_explicit(tmp_path, modumall_dir):
+    # always_sections 가 매뉴얼에 없는 장(章)을 가리키면 조용히 빠지는 대신 즉시 터진다.
+    (tmp_path / "mockdb.json").write_bytes((modumall_dir / "mockdb.json").read_bytes())
+    (tmp_path / "policy.md").write_bytes((modumall_dir / "policy.md").read_bytes())
+    cfg = json.loads((modumall_dir / "domain.json").read_text(encoding="utf-8"))
+    cfg["always_sections"] = cfg["always_sections"] + ["99"]
+    (tmp_path / "domain.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(DomainError) as e:
+        load_domain(tmp_path)
+    assert "99" in str(e.value)

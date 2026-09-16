@@ -35,12 +35,15 @@ function addBubble(who, text) {
 }
 
 async function startCall() {
-  state.gen += 1;
+  const gen = ++state.gen;
   panel.clear(); $("transcript").innerHTML = ""; state.turns = 0;
   setPhase("RINGING");
   await playRing(1500);
+  if (gen !== state.gen) return;
   const r = await fetch("/api/call/start", { method: "POST" }).then(r => r.json());
+  if (gen !== state.gen) return;
   state.callId = r.call_id; state.startedAt = Date.now();
+  clearInterval(state.timer);
   state.timer = setInterval(() => {
     const s = Math.floor((Date.now() - state.startedAt) / 1000);
     $("clock").textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
@@ -99,6 +102,7 @@ async function sendTurn(text) {
   state.turns += 1;
   panel.addTurn(text, r);
   await say(r.answer);
+  if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
   if (r.end_call) { state.busy = false; return endCall("에이전트가 통화를 종료했습니다"); }
   state.busy = false;
   listenLoop();

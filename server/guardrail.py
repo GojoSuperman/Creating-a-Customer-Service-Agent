@@ -28,6 +28,25 @@ ASSERTION_PATTERNS = {
 }
 UNCONFIRMED_HEDGE = r"(확정되지\s*않|미확정|아직\s*확인|검품\s*(후|이\s*완료되)|정해지지\s*않)"
 
+# 한국어 만/천 단위 숫자를 아라비아 숫자로 바꾼다. "10만원" → "100000원",
+# "10만 5천원" → "105000원", "2천원" → "2000원". 순수 한글 숫자(십만 등)는 범위 밖.
+_MAN_RE = re.compile(r"(\d[\d,]*)\s*만\s*(\d[\d,]*)?")
+_CHEON_RE = re.compile(r"(\d[\d,]*)\s*천")
+
+
+def normalize_korean_myriad(text: str) -> str:
+    def _cheon(m: re.Match) -> str:
+        return str(int(m.group(1).replace(",", "")) * 1000)
+
+    text = _CHEON_RE.sub(_cheon, text)
+
+    def _man(m: re.Match) -> str:
+        man = int(m.group(1).replace(",", "")) * 10000
+        rest = int(m.group(2).replace(",", "")) if m.group(2) else 0
+        return str(man + rest)
+
+    return _MAN_RE.sub(_man, text)
+
 
 @dataclass
 class GuardResult:
@@ -94,13 +113,14 @@ def _unconfirmed_fields(tool_results: dict) -> set[str]:
 
 def check(answer: str, tool_results: dict, domain: Domain, min_check: int = 1000) -> GuardResult:
     allowed, tool_nums = allowed_numbers(tool_results, domain)
-    found = numbers_in(answer)
+    normalized_answer = normalize_korean_myriad(answer)
+    found = numbers_in(normalized_answer)
     suspicious = sorted(n for n in found if n >= min_check and n not in allowed)
     violations = []
     if suspicious:
         violations.append({"type": VIOLATION_UNSOURCED,
                            "detail": f"조회 결과·매뉴얼 고정값에 없는 숫자: {suspicious}"})
-    if re.search(r"무료\s?배송", answer) and re.search(r"\d[\d,]*\s*원\s*(이상|부터)", answer):
+    if re.search(r"무료\s?배송", normalized_answer) and re.search(r"\d[\d,]*\s*원\s*(이상|부터)", normalized_answer):
         if "get_shipping_policy" not in (tool_results or {}):
             violations.append({"type": VIOLATION_NO_TOOL,
                                "detail": "무료배송 기준액을 get_shipping_policy 조회 없이 단정"})

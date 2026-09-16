@@ -69,6 +69,19 @@ def test_repeated_tool_calls_are_all_kept(domain):
     assert len(calls) == 2
 
 
+def test_feedback_is_appended_to_human_message(domain):
+    seen = {}
+    def capture(messages):
+        seen["human"] = [m for m in messages if getattr(m, "type", "") == "human" or (isinstance(m, tuple) and m[0] == "human")]
+        return AIMessage(content="네.")
+    a = Answerer(domain, llm=RunnableLambda(capture))
+    a.answer("배송비는요?", "SHIPPING", feedback="출처 불명 수치: [40000]")
+    human = seen["human"][0]
+    content = human.content if hasattr(human, "content") else human[1]
+    assert "[직전 답변 반려 사유] 출처 불명 수치: [40000]" in content
+    assert "조회 결과와 매뉴얼에 있는 값만 써서 다시 답하십시오." in content
+
+
 def test_history_is_prepended(domain):
     seen = {}
     def capture(messages):

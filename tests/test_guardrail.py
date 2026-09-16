@@ -86,6 +86,40 @@ def test_hedge_in_other_sentence_does_not_mask_assertion(domain):
     assert any(v["type"] == "미확정값 확답" for v in r.violations)
 
 
+def test_myriad_unit_bypass_is_caught(domain):
+    # "10만원" 을 정규화 없이 numbers_in 으로 뽑으면 10 만 잡혀 가드레일을 통과해 버린다.
+    r = check("무료배송 기준은 10만원 이상입니다.", {}, domain)
+    types = {v["type"] for v in r.violations}
+    assert "출처 불명 수치" in types
+    assert "툴 미호출 단정" in types
+    assert not r.ok
+
+
+def test_myriad_unit_bypass_with_bu_pattern_is_caught(domain):
+    r = check("무료배송 기준은 10만 원부터입니다.", {}, domain)
+    types = {v["type"] for v in r.violations}
+    assert "출처 불명 수치" in types
+    assert "툴 미호출 단정" in types
+
+
+def test_myriad_and_cheon_combined_converts_correctly(domain):
+    res = {"get_shipping_policy": {"free_shipping_threshold": 105000}}
+    r = check("무료배송 기준은 10만 5천원입니다.", res, domain)
+    assert r.ok, r.violations
+
+
+def test_cheon_unit_converts_correctly(domain):
+    res = {"get_shipping_policy": {"shipping_fee": 2000}}
+    r = check("배송비는 2천원입니다.", res, domain)
+    assert r.ok, r.violations
+
+
+def test_grounded_myriad_answer_passes(domain):
+    res = {"get_shipping_policy": {"free_shipping_threshold": 100000}}
+    r = check("무료배송 기준은 10만원입니다.", res, domain)
+    assert r.ok, r.violations
+
+
 def test_date_components_not_used_for_arithmetic(domain):
     # ISO date components should be allowed directly but not used for arithmetic derivation
     res = {"get_shipping_policy": {"free_shipping_threshold": 100000},

@@ -66,7 +66,7 @@ def load_domain(path: Path) -> Domain:
     if missing_db:
         raise DomainError(f"mockdb.json 에 키가 없습니다: {missing_db}")
 
-    return Domain(
+    domain = Domain(
         name=cfg["name"],
         greeting=cfg["greeting"],
         out_of_scope_message=cfg["out_of_scope_message"],
@@ -80,3 +80,10 @@ def load_domain(path: Path) -> Domain:
         mockdb=mockdb,
         path=path,
     )
+
+    # server.context 가 Domain 을 import 하므로 모듈 최상단에서 맞물리면 순환 import가
+    # 생긴다. load_domain 안에서 지연 import 해 그 순환을 피한다.
+    from server.context import validate_sections
+    validate_sections(domain)
+
+    return domain

@@ -39,7 +39,7 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 ```bash
 .venv/bin/python -m eval.eval_router --rule      # 규칙 기준선 (키 불필요)
 .venv/bin/python -m eval.eval_router             # LLM 라우터 120건
-.venv/bin/python -m eval.eval_answer             # 정답셋 첫 턴 34건
+.venv/bin/python -m eval.eval_answer             # 정답셋 첫 턴 34건 중 자동 판정 가능한 32건
 .venv/bin/pytest -q                              # 단위 테스트 (키 불필요)
 ```
 
