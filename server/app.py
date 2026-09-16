@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
@@ -43,8 +43,13 @@ def create_app(pipeline, domain: Domain) -> FastAPI:
     def turn(req: TurnRequest):
         try:
             return pipeline.turn(req.call_id, req.text).to_dict()
-        except KeyError:
+        except KeyError:  # Pipeline.turn에서 call_id 조회 실패만 처리
             raise HTTPException(status_code=404, detail="알 수 없는 call_id 입니다")
+
+    @app.exception_handler(Exception)
+    async def unhandled(request, exc):
+        # 조용히 이관으로 바꾸지 않는다 — 원인이 그대로 보이게 500으로 드러낸다
+        return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"})
 
     if WEB.exists():
         app.mount("/static", StaticFiles(directory=WEB), name="static")

@@ -20,6 +20,11 @@ class FakePipeline:
                           tools=[], guardrail={"ok": True, "violations": []}, elapsed_ms=5, end_call=False)
 
 
+class BrokenPipeline(FakePipeline):
+    def turn(self, call_id, text):
+        raise RuntimeError("LLM 호출 실패")
+
+
 @pytest.fixture
 def client(modumall_dir):
     return TestClient(create_app(FakePipeline(), load_domain(modumall_dir)))
@@ -50,3 +55,10 @@ def test_empty_text_is_422(client):
 def test_index_served(client):
     r = client.get("/")
     assert r.status_code == 200 and "<html" in r.text.lower()
+
+
+def test_pipeline_error_is_500_with_message(modumall_dir):
+    broken_client = TestClient(create_app(BrokenPipeline(), load_domain(modumall_dir)), raise_server_exceptions=False)
+    broken_client.post("/api/call/start")
+    r = broken_client.post("/api/call/turn", json={"call_id": "abc", "text": "배송비"})
+    assert r.status_code == 500 and "LLM 호출 실패" in r.json()["detail"]
