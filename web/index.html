@@ -1,1 +1,34 @@
-<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>준비 중</title></head><body>준비 중</body></html>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>음성 상담 에이전트</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-phase="IDLE">
+<div class="layout">
+  <section class="phone">
+    <header>
+      <div class="shop"><span id="shop-name">…</span> 고객센터</div>
+      <div class="meta"><span id="status">대기</span> · <span id="clock">00:00</span></div>
+    </header>
+    <div id="transcript" class="transcript"></div>
+    <div id="interim" class="interim"></div>
+    <form id="text-form" class="text-form">
+      <input id="text-input" type="text" placeholder="말하기 대신 입력하려면 여기에 쓰고 Enter" autocomplete="off">
+    </form>
+    <div class="controls">
+      <button id="btn-call" class="call">📞 전화 걸기</button>
+      <button id="btn-hangup" class="hangup">끊기</button>
+      <label class="voice">목소리 <select id="voice-select"></select></label>
+    </div>
+  </section>
+  <aside class="admin">
+    <h2>관리자 패널</h2>
+    <div id="panel"></div>
+  </aside>
+</div>
+<script type="module" src="/static/call.js"></script>
+</body>
+</html>
