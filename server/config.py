@@ -28,7 +28,7 @@ def load_settings() -> Settings:
         router_model=os.environ.get("ROUTER_MODEL", "gpt-4.1-mini"),
         answer_model=os.environ.get("ANSWER_MODEL", "gpt-4.1"),
         conf_threshold=float(os.environ.get("CONF_THRESHOLD", "0.5")),
-        max_tool_turns=int(os.environ.get("MAX_TOOL_TURNS", "3")),
+        max_tool_turns=int(os.environ.get("MAX_TOOL_TURNS", "4")),
         guardrail_retry=int(os.environ.get("GUARDRAIL_RETRY", "1")),
         domain=os.environ.get("DOMAIN", "modumall"),
         domains_root=ROOT / "domains",

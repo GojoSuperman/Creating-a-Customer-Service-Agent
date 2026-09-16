@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from server.guardrail import normalize_korean_myriad
+from server.guardrail import normalize_korean_myriad
 from server.pipeline import ASK_PATTERN, infer_action
 
 
@@ -15,7 +16,7 @@ def norm_num(s) -> str:
 
 def score_turn(expect: dict, answer: str, tools_called: list, action: str):
     fails = []
-    a = norm_num(answer)
+    a = norm_num(normalize_korean_myriad(answer))   # "4만 원" 도 40000 으로 비교
     if expect["action"] != action:
         fails.append(f'action: 기대 {expect["action"]} != 실제 {action}')
     need = set(expect.get("tools", []))

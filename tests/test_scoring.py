@@ -85,3 +85,9 @@ def test_regression_cases_load(modumall_dir):
     for c in cases:
         assert isinstance(c["expect"]["action"], list) and c["expect"]["action"]
         assert "forbid" in c["expect"]
+
+
+def test_score_turn_must_normalizes_korean_myriad():
+    ok, fails = score_turn({"action": "ANSWER", "tools": [], "must": ["40000"], "forbid": []},
+                           "4만 원 이상 구매하시면 무료배송입니다.", [], "ANSWER")
+    assert ok, fails

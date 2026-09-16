@@ -164,3 +164,14 @@ def test_mixed_alias_intent_two_exact_alias_tokens(tools):
 def test_find_identifiers():
     assert find_identifiers("O-1006 반품 배송비 누가 내요?") == {"product_id": None, "order_id": "O-1006"}
     assert find_identifiers("P4001 배송비") == {"product_id": "P4001", "order_id": None}
+
+
+def test_name_token_inside_query_token_is_not_a_match(tools):
+    # "팬티" 가 "요일팬티" 안에 있다고 오가닉 팬티가 동점이 되면 안 된다
+    r = tools["search_product"]("요일팬티 세트")
+    assert r["resolved_product_id"] == "P1001" and r["ambiguous"] is False
+
+
+def test_leather_jacket_beats_leather_belt(tools):
+    r = tools["search_product"]("가죽 자켓 블랙 XL")
+    assert r["resolved_product_id"] == "P3001"

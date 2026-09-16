@@ -108,7 +108,9 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
                 name = p["name"]
                 flat = name.replace(" ", "")
                 nt = _toks(name)
-                overlap = sum(1 for t in qt if t in flat or any(t in x or x in t for x in nt))
+                # 질의 토큰이 상품명(공백 제거) 또는 상품명 토큰 안에 있을 때만 매치. 반대 방향(x in t)은
+                # '팬티'가 '요일팬티'에 들어 있다는 이유로 무관한 상품까지 동점으로 만들어 제외한다
+                overlap = sum(1 for t in qt if t in flat or any(t in x for x in nt))
                 score = overlap / len(qt)
                 if score == 0:
                     # 오타 보정: 공백 제거 문자열 유사도
