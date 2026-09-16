@@ -1,5 +1,6 @@
+import pandas as pd
 import pytest
-from eval.calibration import calibration_table
+from eval.calibration import calibration_table, gate_grid, recommend_gate
 
 
 def test_buckets_and_ece():
@@ -33,3 +34,38 @@ def test_overconfident_has_high_ece():
 def test_empty_input():
     df, ece = calibration_table([], [])
     assert df["건수"].sum() == 0 and ece == 0.0
+
+def _hard():
+    return pd.DataFrame([
+        # 경계모호: 1순위 0.7, 2순위 0.6 → 마진 0.1
+        {"confidence": 0.7, "alt_confidence": 0.6, "route_alt": "ORDER_PLACE", "route": "PRODUCT_INFO",
+         "route_expected": "PRODUCT_INFO", "route_alt_expected": "ORDER_PLACE", "hard_type": "경계모호"},
+        # 비모호, 정답, 마진 넓음
+        {"confidence": 0.9, "alt_confidence": 0.1, "route_alt": "SHIPPING", "route": "RETURN_REFUND",
+         "route_expected": "RETURN_REFUND", "route_alt_expected": None, "hard_type": "오타"},
+        # 비모호, 정답, 2순위 없음
+        {"confidence": 0.6, "alt_confidence": 0.0, "route_alt": None, "route": "SHIPPING",
+         "route_expected": "SHIPPING", "route_alt_expected": None, "hard_type": "구어체"},
+    ])
+
+
+def test_gate_grid_counts_risky_and_wrong_escalation():
+    g = gate_grid(_hard(), thresholds=(0.5,), margins=(0.0, 0.2))
+    m0 = g[(g["임계값"] == 0.5) & (g["마진"] == 0.0)].iloc[0]
+    assert m0["경계모호위험"] == 1 and m0["비모호오이관"] == 0 and abs(m0["자동처리율"] - 1.0) < 1e-9
+    m2 = g[(g["임계값"] == 0.5) & (g["마진"] == 0.2)].iloc[0]
+    assert m2["경계모호위험"] == 0 and m2["비모호오이관"] == 0
+    assert abs(m2["자동처리율"] - 2 / 3) < 1e-9
+
+
+def test_gate_grid_threshold_escalates_low_confidence():
+    g = gate_grid(_hard(), thresholds=(0.7,), margins=(0.0,))
+    row = g.iloc[0]
+    assert row["비모호오이관"] == 1        # conf 0.6 정답 건이 이관됨
+
+
+def test_recommend_gate_prefers_max_automation_under_risk_cap():
+    g = gate_grid(_hard(), thresholds=(0.5, 0.7), margins=(0.0, 0.2))
+    best = recommend_gate(g, max_risky=0)
+    assert best["임계값"] == 0.5 and best["마진"] == 0.2
+    assert recommend_gate(g.iloc[0:0]) is None

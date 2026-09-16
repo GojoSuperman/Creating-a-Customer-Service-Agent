@@ -33,7 +33,7 @@ def main():
         ev = ev.head(args.limit)
 
     classify = make_rule_classifier() if args.rule else make_llm_classifier(domain, s.router_model)
-    graph = build_router(domain, s.conf_threshold, classify=classify)
+    graph = build_router(domain, s.conf_threshold, classify=classify, conf_margin=s.conf_margin)
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         states = list(ex.map(lambda q: graph.invoke({"question": q}), ev["question"].tolist()))
     pred = [st["route"] for st in states]
