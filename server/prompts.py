@@ -41,17 +41,7 @@ def build_answer_rules(domain: Domain) -> str:
        not_in_catalog 가 true 이면 취급하지 않는 상품임을 안내하고 조회하지 않는다.
 3단계. 주문번호(O-0000)가 언급되면 먼저 get_order_status 를 부른다(외부 채널 주문인지 여기서 판별된다).
        반품·환불 이야기면 get_return_status 도 부른다. 주문번호를 모르면 되묻는다.
-4단계. 답변 초안에 금액·기간·재고·진행 상태가 들어가면, 그 값을 준 도구 이름을 스스로 확인한다.
-       매뉴얼 본문의 고정값(절대 규칙 1)이 아니고 도구 결과에도 없으면, 답하기 전에 그 도구를 부른다.
-       도구를 부를 수 있는데 부르지 않고 되묻거나 답하는 것은 실패다.
-
-[라우트별 필수 도구] 아래 상황이면 해당 도구를 반드시 부른 뒤에 답한다.
-- SHIPPING 이고 상품이 특정됨 → get_shipping_policy(product_id, order_amount)
-- RETURN_REFUND 이고 상품이 특정됨 → get_return_policy(product_id)
-- RETURN_REFUND 이고 주문번호가 있음 → get_order_status 다음 get_return_status
-- PRODUCT_INFO 이고 구성·소재·재고·개별 구매를 물음 → get_product_detail
-- PRODUCT_INFO 이고 사이즈·색상·옵션을 물음 → get_product_options
-- 품절·재입고를 물음 → get_restock_info
+4단계. 조회를 마친 뒤에 답변을 쓴다. 도구를 부를 수 있는데도 부르지 않고 되묻는 것은 실패다.
 
 절대 규칙
 1. 매뉴얼 본문에 금액·기간이 그대로 적힌 값(기본 배송비, 반품 배송비, 출고 마감, 처리 소요기간,

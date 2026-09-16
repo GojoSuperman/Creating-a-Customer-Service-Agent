@@ -66,17 +66,3 @@ def test_answer_rules_mention_procedure(domain):
     assert "null" in rules
     assert domain.name in rules
     assert "not_in_catalog 가 false" in rules
-
-
-def test_answer_rules_have_required_tool_table(domain):
-    rules = build_answer_rules(domain)
-    assert "[라우트별 필수 도구]" in rules
-    for tool in ("get_shipping_policy", "get_return_policy", "get_return_status",
-                 "get_product_detail", "get_product_options", "get_restock_info"):
-        assert tool in rules, tool
-
-
-def test_answer_rules_self_check_sentence(domain):
-    rules = build_answer_rules(domain)
-    assert "그 값을 준 도구 이름을 스스로 확인" in rules
-    assert "도구를 부를 수 있는데 부르지 않고 되묻거나 답하는 것은 실패다" in rules
