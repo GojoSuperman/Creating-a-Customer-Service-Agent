@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
-from eval.scoring import infer_action, load_first_turns, score_turn, self_check
+from eval.scoring import aggregate_runs, infer_action, load_first_turns, score_turn, self_check
 from server.answer import Answerer
 from server.config import load_settings
 from server.domain import load_domain
@@ -21,6 +21,7 @@ def main():
     ap.add_argument("--domain", default=None)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--runs", type=int, default=1, help="케이스당 실행 횟수. 2 이상이면 플랩 감지")
     args = ap.parse_args()
 
     s = load_settings()
@@ -37,17 +38,25 @@ def main():
     answerer = Answerer(domain, model=s.answer_model, max_tool_turns=s.max_tool_turns)
 
     def run(case):
-        text, results, calls = answerer.answer(case["question"], case["route"])
-        return infer_action(text, results), text, list(results)
+        outs = []
+        for _ in range(args.runs):
+            text, results, calls = answerer.answer(case["question"], case["route"])
+            action = infer_action(text, results)
+            ok, fails = score_turn(case["expect"], text, list(results), action)
+            outs.append({"ok": ok, "fails": fails, "action": action, "text": text})
+        return outs
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        outs = list(ex.map(run, scored))
+        results_per_case = list(ex.map(run, scored))
 
     rows = []
-    for c, (action, text, tools) in zip(scored, outs):
-        ok, fails = score_turn(c["expect"], text, tools, action)
-        rows.append({"conv": c["conv_id"], "기대": c["expect"]["action"], "실제": action, "ok": ok,
-                     "fails": "; ".join(fails), "answer": text})
+    for c, outs in zip(scored, results_per_case):
+        verdict = aggregate_runs([o["ok"] for o in outs])
+        first = outs[0]
+        rows.append({"conv": c["conv_id"], "기대": c["expect"]["action"], "실제": first["action"],
+                     "ok": verdict == "PASS", "판정": verdict,
+                     "fails": "; ".join(first["fails"]), "answer": first["text"],
+                     "runs": outs})
     res = pd.DataFrame(rows)
     if res.empty:
         print("채점할 항목이 없습니다")
@@ -63,6 +72,11 @@ def main():
     for _, r in res[~res["ok"]].iterrows():
         print(f'  {r["conv"]} 기대={r["기대"]} 실제={r["실제"]}  {r["fails"][:90]}')
         print(f'      답변: {r["answer"][:100]}')
+
+    if args.runs > 1:
+        print(f"\n[플랩 감지] runs={args.runs}  " + "  ".join(f"{k} {v}" for k, v in res["판정"].value_counts().items()))
+        for _, r in res[res["판정"] == "FLAP"].iterrows():
+            print(f"  FLAP {r['conv']}: " + " | ".join(("ok" if o["ok"] else "; ".join(o["fails"])[:50]) for o in r["runs"]))
 
 
 if __name__ == "__main__":

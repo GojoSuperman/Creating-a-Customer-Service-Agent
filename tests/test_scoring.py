@@ -49,3 +49,15 @@ def test_first_turn_uses_turn_level_route(modumall_dir):
     # 모든 경우의 route는 ROUTES에 속해야 함 (OTHER 제외 가능)
     for case in cases:
         assert case["route"] in ROUTES, f"{case['conv_id']}: {case['route']} not in {ROUTES}"
+
+
+def test_aggregate_runs_thresholds():
+    from eval.scoring import aggregate_runs
+    
+    assert aggregate_runs([True]) == "PASS"
+    assert aggregate_runs([False]) == "FAIL"
+    assert aggregate_runs([True, True, False]) == "PASS"     # 2/3 >= ceil(3*0.67)=3? -> 아래 참조
+    assert aggregate_runs([True, False, False]) == "FLAP"
+    assert aggregate_runs([False, False, False]) == "FAIL"
+    assert aggregate_runs([True, True, True, False, False]) == "FLAP"   # 3/5 < ceil(5*0.67)=4
+    assert aggregate_runs([True, True, True, True, False]) == "PASS"

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """정답셋 채점 규칙. LLM 없이 돈다."""
 import json
+import math
 import re
 from pathlib import Path
 
@@ -49,3 +50,20 @@ def self_check(cases: list[dict]) -> list[str]:
     return [c["conv_id"] for c in cases
             if not score_turn(c["expect"], c["expect"]["reference"],
                               c["expect"].get("tools", []), c["expect"]["action"])[0]]
+
+
+def aggregate_runs(passes: list) -> str:
+    """같은 케이스를 여러 번 돌린 결과를 하나로 판정한다.
+
+    ceil(n * 2/3) 이상 통과면 PASS, 0 이면 FAIL, 그 사이면 FLAP(흔들림).
+    FLAP 은 단언이 너무 엄격하거나 모델이 그 입력에서 불안정하다는 뜻이다. 지우지 말고 따로 본다.
+    """
+    n = len(passes)
+    if n == 0:
+        raise ValueError("실행 결과가 비어 있습니다")
+    ok = sum(1 for p in passes if p)
+    if ok >= math.ceil(n * 2 / 3):
+        return "PASS"
+    if ok == 0:
+        return "FAIL"
+    return "FLAP"
