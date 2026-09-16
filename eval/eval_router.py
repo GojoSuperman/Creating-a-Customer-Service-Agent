@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
-"""① 의도 분류 평가.  .venv/bin/python -m eval.eval_router [--limit N] [--rule] [--domain modumall]"""
+"""① 의도 분류 평가.  .venv/bin/python -m eval.eval_router [--limit N] [--rule] [--domain modumall]
+멀티턴: .venv/bin/python -m eval.eval_router --multiturn [--no-history]"""
 import argparse
+import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pandas as pd
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
@@ -9,9 +12,46 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from eval.calibration import calibration_table
 from server.config import load_settings
 from server.domain import ROUTES, load_domain
+from server.pipeline import compose_router_input
 from server.router import build_router, make_llm_classifier, make_rule_classifier
 
 LABELS4 = [r for r in ROUTES if r != "OTHER"]
+
+
+def load_multiturn(path: Path) -> list:
+    return list(json.loads(Path(path).read_text(encoding="utf-8"))["conversations"])
+
+
+def route_conversation(graph, turns: list, use_history: bool = True) -> list:
+    """대화 하나를 턴 순서대로 라우팅한다. 런타임 _node_route 와 같은 규칙:
+    입력은 compose_router_input 으로 만들고, followup 이면서 직전 턴이 게이트를 통과했고
+    직전 라우트가 OTHER 가 아닐 때만 직전 라우트를 이어받는다.
+    is_followup 은 라우터가 낸 값 그대로 기록한다(이어받기 여부와 별개로 인식률을 재기 위해)."""
+    history, prev, prev_gated, out = [], None, False, []
+    for t in turns:
+        q = compose_router_input(t["text"], history, prev) if use_history else t["text"]
+        st = graph.invoke({"question": q})
+        gated = st["action"] == "ESCALATE"   # 게이트(확신도·마진)가 이 턴의 판단을 거부했다
+        followup = (bool(st.get("is_followup")) and prev is not None
+                    and not prev_gated and prev != "OTHER")
+        route = prev if followup else st["route"]
+        out.append({"route": route, "is_followup": bool(st.get("is_followup")), "confidence": st["confidence"]})
+        history.append(t["text"])
+        prev, prev_gated = route, gated
+    return out
+
+
+def score_multiturn(convs: list, preds: list) -> dict:
+    first = [(c["turns"][0]["route"], p[0]["route"]) for c, p in zip(convs, preds)]
+    later = [(t["route"], q["route"]) for c, p in zip(convs, preds) for t, q in zip(c["turns"][1:], p[1:])]
+    fu = [(t["followup"], q["is_followup"]) for c, p in zip(convs, preds) for t, q in zip(c["turns"][1:], p[1:])]
+    conf = pd.crosstab(pd.Series([a for a, _ in fu], name="정답 followup"),
+                       pd.Series([b for _, b in fu], name="예측 followup")).reindex(index=[False, True], columns=[False, True], fill_value=0)
+    return {"turn1_acc": sum(a == b for a, b in first) / len(first) if first else float("nan"),
+            "later_acc": sum(a == b for a, b in later) / len(later) if later else float("nan"),
+            "followup_confusion": conf,
+            "later_miss": [(c["conv_id"], t["text"], t["route"], q["route"]) for c, p in zip(convs, preds)
+                           for t, q in zip(c["turns"][1:], p[1:]) if t["route"] != q["route"]]}
 
 
 def main():
@@ -20,11 +60,33 @@ def main():
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--rule", action="store_true", help="키워드 규칙 분류기로 기준선을 잰다")
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--multiturn", action="store_true", help="멀티턴 라우트셋으로 드리프트 보정을 잰다")
+    ap.add_argument("--no-history", action="store_true", help="--multiturn 기준선: 직전 문의·라우트 없이 단일 발화로")
     args = ap.parse_args()
 
     s = load_settings()
     domain = load_domain(s.domains_root / (args.domain or s.domain))
     ev_dir = domain.path / "eval"
+
+    classify = make_rule_classifier() if args.rule else make_llm_classifier(domain, s.router_model)
+    graph = build_router(domain, s.conf_threshold, classify=classify, conf_margin=s.conf_margin)
+
+    if args.multiturn:
+        convs = load_multiturn(ev_dir / "multiturn_routes.json")
+        if args.limit:
+            convs = convs[:args.limit]
+        with ThreadPoolExecutor(max_workers=args.workers) as ex:
+            preds = list(ex.map(lambda c: route_conversation(graph, c["turns"], use_history=not args.no_history), convs))
+        sc = score_multiturn(convs, preds)
+        mode = "히스토리 없음(기준선)" if args.no_history else "히스토리+직전 라우트"
+        print(f"[멀티턴 {len(convs)}대화, {mode}] 턴1 정확도 {sc['turn1_acc']:.3f}  턴2+ 정확도 {sc['later_acc']:.3f}")
+        print("\n[followup 혼동] 행=정답, 열=예측")
+        print(sc["followup_confusion"].to_string())
+        print(f"\n[턴2+ 오분류 {len(sc['later_miss'])}건]")
+        for cid, text, g, p in sc["later_miss"]:
+            print(f"  {cid} [{g} → {p}]  {text[:50]}")
+        return
+
     inq = pd.read_csv(ev_dir / "customer_inquiries.csv", encoding="utf-8-sig")
     ans = pd.read_csv(ev_dir / "routing_answers.csv", encoding="utf-8-sig")
     ev = inq.merge(ans, on="qa_id")
@@ -32,8 +94,6 @@ def main():
     if args.limit:
         ev = ev.head(args.limit)
 
-    classify = make_rule_classifier() if args.rule else make_llm_classifier(domain, s.router_model)
-    graph = build_router(domain, s.conf_threshold, classify=classify, conf_margin=s.conf_margin)
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         states = list(ex.map(lambda q: graph.invoke({"question": q}), ev["question"].tolist()))
     pred = [st["route"] for st in states]

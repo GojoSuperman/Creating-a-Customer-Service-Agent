@@ -1,0 +1,88 @@
+{
+  "$comment": "멀티턴 라우팅 정답셋 v1.0 — provenance=합성. 후속 발화가 단독으로는 다른 라우트로 보이는 대화를 모아 라우트 드리프트 보정을 측정한다. 턴마다 route 정답과 followup(직전 문의의 연속 여부) 정답을 둔다.",
+  "version": "1.0",
+  "conversations": [
+    {"conv_id": "M-001", "title": "배송비 → 반품비 (라우트 전환)",
+     "turns": [{"text": "레깅스는 배송비가 얼마 나오나요?", "route": "SHIPPING", "followup": false},
+               {"text": "그럼 반품할 땐 배송비 얼마예요?", "route": "RETURN_REFUND", "followup": false}]},
+
+    {"conv_id": "M-002", "title": "상품 문의 → 구매 진행 (라우트 전환)",
+     "turns": [{"text": "가죽 벨트는 허리 몇 인치까지 맞나요?", "route": "PRODUCT_INFO", "followup": false},
+               {"text": "그럼 브라운으로 하나 주문 넣어주세요.", "route": "ORDER_PLACE", "followup": false}]},
+
+    {"conv_id": "M-003", "title": "배송 → 상품 스펙 (라우트 전환)",
+     "turns": [{"text": "크로스 백 오늘 출고되면 모레 도착하나요?", "route": "SHIPPING", "followup": false},
+               {"text": "가방 안쪽에 지퍼 포켓은 달려 있나요?", "route": "PRODUCT_INFO", "followup": false}]},
+
+    {"conv_id": "M-004", "title": "교환 진행 → 다른 주문 출고 (라우트 전환)",
+     "turns": [{"text": "슬립 원피스 교환 접수했는데 수거 기사님은 언제 오나요?", "route": "RETURN_REFUND", "followup": false},
+               {"text": "그건 그렇고 어제 넣은 다른 주문은 아직 출고 안 됐나요?", "route": "SHIPPING", "followup": false}]},
+
+    {"conv_id": "M-005", "title": "상품 문의 → 짧은 후속 (이어받기)",
+     "turns": [{"text": "캔버스화 사이즈 어떤 거 있어요?", "route": "PRODUCT_INFO", "followup": false},
+               {"text": "흰색도요?", "route": "PRODUCT_INFO", "followup": true}]},
+
+    {"conv_id": "M-006", "title": "배송 기간 → 지역 되묻기 (이어받기)",
+     "turns": [{"text": "검정 레깅스 주문하면 배송 며칠 걸려요?", "route": "SHIPPING", "followup": false},
+               {"text": "제주도는요?", "route": "SHIPPING", "followup": true}]},
+
+    {"conv_id": "M-007", "title": "반품 절차 → 개봉 여부 (이어받기)",
+     "turns": [{"text": "어성초 기초 케어 세트 반품하려는데 절차 알려주세요.", "route": "RETURN_REFUND", "followup": false},
+               {"text": "하나만 뜯었어도 되나요?", "route": "RETURN_REFUND", "followup": true}]},
+
+    {"conv_id": "M-008", "title": "구매 진행 → 수량 변경 (이어받기)",
+     "turns": [{"text": "발열내의 상하 세트 라지 사이즈로 구매할게요.", "route": "ORDER_PLACE", "followup": false},
+               {"text": "두 세트로 늘려 주세요.", "route": "ORDER_PLACE", "followup": true}]},
+
+    {"conv_id": "M-009", "title": "구성 문의 → 용량 → 재고 (이어받기 3턴)",
+     "turns": [{"text": "트래블 키트 4종은 뭐가 들어 있나요?", "route": "PRODUCT_INFO", "followup": false},
+               {"text": "용량도 알려주세요.", "route": "PRODUCT_INFO", "followup": true},
+               {"text": "지금 남아 있는 건 있나요?", "route": "PRODUCT_INFO", "followup": true}]},
+
+    {"conv_id": "M-010", "title": "도착일 → 함께 담은 상품 → 묶음 (이어받기 3턴)",
+     "turns": [{"text": "플로피 햇 오늘 주문하면 언제 받아요?", "route": "SHIPPING", "followup": false},
+               {"text": "모자랑 같이 담은 크로스 백도 같은 날 와요?", "route": "SHIPPING", "followup": true},
+               {"text": "한 번에 묶어서 보내주시는 거죠?", "route": "SHIPPING", "followup": true}]},
+
+    {"conv_id": "M-011", "title": "되묻기 뒤 대답 — 배송",
+     "turns": [{"text": "그거 어떻게 돼요?", "route": "OTHER", "followup": false, "clarify": true},
+               {"text": "어제 주문한 거 배송이요", "route": "SHIPPING", "followup": true}]},
+
+    {"conv_id": "M-012", "title": "되묻기 뒤 대답 — 재입고",
+     "turns": [{"text": "이거 좀 알아봐 주세요.", "route": "OTHER", "followup": false, "clarify": true},
+               {"text": "가죽 자켓 엑스라지 재입고 얘기예요.", "route": "PRODUCT_INFO", "followup": true}]},
+
+    {"conv_id": "M-013", "title": "되묻기 뒤 대답 — 환불 진행",
+     "turns": [{"text": "저번에 말한 건 처리됐나요?", "route": "OTHER", "followup": false, "clarify": true},
+               {"text": "브라·팬티 세트 환불 신청한 거요.", "route": "RETURN_REFUND", "followup": true}]},
+
+    {"conv_id": "M-014", "title": "되묻기 뒤 대답 — 낱개 구매",
+     "turns": [{"text": "그쪽에서 확인해 주신다고 했잖아요.", "route": "OTHER", "followup": false, "clarify": true},
+               {"text": "커플링 반지 세트에서 남자 링만 따로 구매되는지요.", "route": "ORDER_PLACE", "followup": true}]},
+
+    {"conv_id": "M-015", "title": "되묻기 뒤 대답 — 도착 예정일",
+     "turns": [{"text": "아까 물어본 거 답이 없어서요.", "route": "OTHER", "followup": false, "clarify": true},
+               {"text": "실버 체인 목걸이 언제쯤 도착하는지요.", "route": "SHIPPING", "followup": true}]},
+
+    {"conv_id": "M-016", "title": "상품 색상 → 무료배송 조건 (새 주제)",
+     "turns": [{"text": "펄 라이너 색상 몇 가지 있어요?", "route": "PRODUCT_INFO", "followup": false},
+               {"text": "무료배송은 얼마부터예요?", "route": "SHIPPING", "followup": false}]},
+
+    {"conv_id": "M-017", "title": "낱개 구매 → 매장 방문 (새 주제, 범위 밖)",
+     "turns": [{"text": "오가닉 팬티 5매 세트 낱개로도 파나요?", "route": "ORDER_PLACE", "followup": false},
+               {"text": "혹시 매장에서 직접 보고 살 수도 있어요?", "route": "OTHER", "followup": false}]},
+
+    {"conv_id": "M-018", "title": "환불 입금 → 다른 상품 소재 (새 주제)",
+     "turns": [{"text": "스니커즈 환불 신청했는데 언제 입금돼요?", "route": "RETURN_REFUND", "followup": false},
+               {"text": "핸드메이드 트렌치 코트 소재는 뭔가요?", "route": "PRODUCT_INFO", "followup": false}]},
+
+    {"conv_id": "M-019", "title": "사이즈표 → 다른 상품 주문 (새 주제)",
+     "turns": [{"text": "요일팬티 7종 세트 허리 사이즈표 알려주세요.", "route": "PRODUCT_INFO", "followup": false},
+               {"text": "컷팅 라운드 귀걸이 두 개 주문할게요.", "route": "ORDER_PLACE", "followup": false}]},
+
+    {"conv_id": "M-020", "title": "배송비 → 정품 여부 → 반품 가능 (새 주제 3턴)",
+     "turns": [{"text": "가죽 벨트 배송비 따로 붙어요?", "route": "SHIPPING", "followup": false},
+               {"text": "브라·팬티 세트는 정품 인증서 같은 게 있나요?", "route": "PRODUCT_INFO", "followup": false},
+               {"text": "받고 나서 마음에 안 들면 반품할 수 있죠?", "route": "RETURN_REFUND", "followup": false}]}
+  ]
+}
