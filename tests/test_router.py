@@ -76,6 +76,7 @@ def test_answer_rules_have_required_tool_table(domain):
         assert tool in rules, tool
 
 
-def test_answer_rules_keep_step4_sentence(domain):
+def test_answer_rules_self_check_sentence(domain):
     rules = build_answer_rules(domain)
-    assert "도구를 부를 수 있는데도 부르지 않고 되묻는 것은 실패다" in rules
+    assert "그 값을 준 도구 이름을 스스로 확인" in rules
+    assert "도구를 부를 수 있는데 부르지 않고 되묻거나 답하는 것은 실패다" in rules
