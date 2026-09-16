@@ -110,3 +110,33 @@ def test_needs_judge_only_when_all_fails_are_must():
     assert needs_judge(['must 누락: "2500"', 'must 누락: "품절"']) is True
     assert needs_judge(['must 누락: "2500"', "tools 미호출: ['x']"]) is False
     assert needs_judge([]) is False
+
+
+def test_verdict_label_all_rule_pass():
+    from eval.eval_answer import verdict_label
+    outs = [{"ok": True, "how": "규칙"}] * 3
+    assert verdict_label(outs) == ("PASS(규칙)", True)
+
+
+def test_verdict_label_majority_rule_pass():
+    from eval.eval_answer import verdict_label
+    outs = [{"ok": True, "how": "규칙"}, {"ok": True, "how": "규칙"}, {"ok": False, "how": None}]
+    assert verdict_label(outs) == ("PASS(규칙)", True)
+
+
+def test_verdict_label_judge_majority():
+    from eval.eval_answer import verdict_label
+    outs = [{"ok": True, "how": "규칙"}, {"ok": True, "how": "judge"}, {"ok": True, "how": "judge"}]
+    assert verdict_label(outs) == ("PASS(judge)", False)
+
+
+def test_verdict_label_flap():
+    from eval.eval_answer import verdict_label
+    outs = [{"ok": True, "how": "judge"}, {"ok": False, "how": None}, {"ok": False, "how": None}]
+    assert verdict_label(outs) == ("FLAP", False)
+
+
+def test_verdict_label_all_fail():
+    from eval.eval_answer import verdict_label
+    outs = [{"ok": False, "how": None}] * 3
+    assert verdict_label(outs) == ("FAIL", False)

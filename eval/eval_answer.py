@@ -20,6 +20,19 @@ from server.domain import load_domain
 AUTO_ACTIONS = {"ANSWER", "ASK", "OUT_OF_SCOPE"}
 
 
+def verdict_label(outs: list) -> tuple[str, bool]:
+    """runs 별 결과 → (판정 라벨, rule_ok).
+
+    규칙 통과율(rule_ok)과 판정 라벨의 PASS(규칙) 건수가 같은 정의를 쓰도록 여기 한 곳에서 정한다:
+    둘 다 aggregate_runs 의 다수결로 "규칙만으로 통과"인지를 판단한다.
+    """
+    verdict = aggregate_runs([o["ok"] for o in outs])
+    rule_ok = aggregate_runs([o["how"] == "규칙" for o in outs]) == "PASS"
+    if verdict != "PASS":
+        return verdict, rule_ok
+    return ("PASS(규칙)" if rule_ok else "PASS(judge)"), rule_ok
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--domain", default=None)
@@ -79,13 +92,9 @@ def main():
     for c, outs in zip(scored, results_per_case):
         verdict = aggregate_runs([o["ok"] for o in outs])
         first = outs[0]
-        hows = [o["how"] for o in outs if o["ok"]]
-        label = verdict
-        if verdict == "PASS":
-            label = "PASS(judge)" if hows and all(h == "judge" for h in hows) else \
-                    ("PASS(규칙+judge)" if "judge" in hows else "PASS(규칙)")
+        label, rule_ok = verdict_label(outs)
         rows.append({"conv": c["conv_id"], "기대": c["expect"]["action"], "실제": first["action"],
-                     "ok": verdict == "PASS", "판정": label, "rule_ok": all(o["how"] == "규칙" for o in outs),
+                     "ok": verdict == "PASS", "판정": label, "rule_ok": rule_ok,
                      "fails": "; ".join(first["fails"]), "answer": first["text"], "runs": outs})
     res = pd.DataFrame(rows)
     if res.empty:
