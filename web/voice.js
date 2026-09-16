@@ -17,6 +17,8 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {} } = {}) {
   let rec = null;
   let currentUtter = null;
   let voice = null;
+  let mode = "browser";          // "browser" | "server"
+  let audio = null;              // 서버 TTS 재생용
 
   function pickVoice() {
     const all = synth ? synth.getVoices() : [];
@@ -28,10 +30,38 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {} } = {}) {
     synth.onvoiceschanged = () => { if (!voice) voice = pickVoice(); };
   }
 
-  return {
+  // 서버(OpenAI) TTS: mp3 를 받아 재생한다. 실패하면 브라우저 음성으로 한 번 대체한다.
+  async function speakServer(text) {
+    if (!text) return;
+    if (audio) { try { audio.pause(); } catch (_) {} audio = null; }
+    let url;
+    try {
+      const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ text: speakable(text) }) });
+      if (!res.ok) throw new Error(`tts ${res.status}`);
+      url = URL.createObjectURL(await res.blob());
+    } catch (e) {
+      console.warn("서버 TTS 실패, 브라우저 음성으로 대체:", e.message);
+      mode = "browser";
+      const p = api.speak(text);
+      mode = "server";
+      return p;
+    }
+    await new Promise((resolve) => {
+      audio = new Audio(url);
+      audio.onended = () => { URL.revokeObjectURL(url); audio = null; resolve(); };
+      audio.onerror = () => { URL.revokeObjectURL(url); audio = null; resolve(); };
+      audio.onpause = () => { if (audio && audio.ended === false) resolve(); };   // stop() 으로 끊긴 경우
+      audio.play().catch(() => resolve());
+    });
+  }
+
+  const api = {
     get supported() { return { recognition: !!SR, synthesis: !!synth }; },
     listVoices() { return synth ? synth.getVoices().filter(v => v.lang.toLowerCase().startsWith("ko")) : []; },
     setVoice(v) { voice = v; },
+    setMode(m) { mode = m === "server" ? "server" : "browser"; },
+    get mode() { return mode; },
 
     listen() {
       return new Promise((resolve, reject) => {
@@ -57,6 +87,7 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {} } = {}) {
     },
 
     speak(text) {
+      if (mode === "server") return speakServer(text);
       return new Promise((resolve) => {
         if (!synth || !text) return resolve();
         synth.cancel();
@@ -75,6 +106,8 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {} } = {}) {
       if (rec) { try { rec.abort(); } catch (_) {} rec = null; }
       if (synth) synth.cancel();
       currentUtter = null;
+      if (audio) { try { audio.pause(); } catch (_) {} audio = null; }
     },
   };
+  return api;
 }

@@ -25,7 +25,7 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 | `server/guardrail.py` | 숫자 출처 역추적, 미확정값 확답 검사 |
 | `server/pipeline.py` | 전체 그래프 + 통화별 체크포인터 |
 | `server/app.py` | FastAPI |
-| `web/` | 전화 화면 (voice.js 가 음성 모듈) |
+| `web/` | 전화 화면 (voice.js 가 음성 모듈 — 브라우저/OpenAI TTS 전환) |
 | `domains/<이름>/` | 도메인 데이터 |
 | `eval/` | 평가 스크립트 |
 
@@ -66,6 +66,6 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 
 - 상품명 연결이 토큰 겹침 + 오타 보정 수준이다. 실서비스는 임베딩 검색이 필요하다.
 - 체크포인터는 메모리라 서버 재시작 시 통화가 사라진다.
-- 음성은 크롬·엣지 계열의 Web Speech API에 의존한다.
+- 음성 인식은 크롬·엣지의 Web Speech API에 의존한다. 음성 합성은 OpenAI TTS(`TTS_MODEL`, 기본 gpt-4o-mini-tts)를 쓰고, 비우면 브라우저 음성으로 돌아간다. 브라우저 음성은 엣지에서 'Online (Natural)' 계열이 자연스럽다.
 
 모델명은 날짜 고정 버전을 쓰는 것이 안전하다(`ROUTER_MODEL=gpt-4.1-mini-2025-04-14` 처럼). 제공사가 별칭의 가중치를 조용히 바꾸면 회귀 스위트로만 알 수 있다.

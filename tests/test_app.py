@@ -63,3 +63,19 @@ def test_pipeline_error_is_500_with_message(modumall_dir):
     broken_client.post("/api/call/start")
     r = broken_client.post("/api/call/turn", json={"call_id": "abc", "text": "배송비"})
     assert r.status_code == 500 and "LLM 호출 실패" in r.json()["detail"]
+
+
+def test_tts_501_when_not_configured(client):
+    r = client.post("/api/tts", json={"text": "안녕하세요"})
+    assert r.status_code == 501
+    assert client.get("/api/domain").json()["tts_available"] is False
+
+
+def test_tts_returns_audio_when_configured(modumall_dir):
+    app = create_app(FakePipeline(), load_domain(modumall_dir), tts=lambda text: b"ID3fake-mp3:" + text.encode())
+    c = TestClient(app)
+    assert c.get("/api/domain").json()["tts_available"] is True
+    r = c.post("/api/tts", json={"text": "오 다시 일 공 공 일"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("audio/mpeg")
+    assert r.content.startswith(b"ID3fake-mp3:")
+    assert c.post("/api/tts", json={"text": "  "}).status_code == 422

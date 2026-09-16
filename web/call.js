@@ -137,12 +137,15 @@ $("text-form").onsubmit = (e) => {
   voice.stop();
   sendTurn(t);
 };
+$("engine-select").onchange = (e) => { voice.setMode(e.target.value); $("voice-select").disabled = e.target.value === "server"; };
 $("voice-select").onchange = (e) => { const v = voice.listVoices()[e.target.value]; if (v) voice.setVoice(v); };
 
 // 초기화
 (async () => {
   const d = await fetch("/api/domain").then(r => r.json());
   $("shop-name").textContent = d.name;
+  if (d.tts_available) { voice.setMode("server"); $("engine-select").value = "server"; $("voice-select").disabled = true; }
+  else { $("engine-select").querySelector('option[value="server"]').disabled = true; }
   if (!voice.supported.recognition) enableTextOnly("이 브라우저는 음성 인식을 지원하지 않습니다. 크롬 또는 엣지를 권장합니다.");
   const fill = () => { $("voice-select").innerHTML = voice.listVoices().map((v, i) => `<option value="${i}">${v.name}</option>`).join(""); };
   fill(); if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = fill;

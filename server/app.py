@@ -3,13 +3,24 @@
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
 from server.domain import Domain
 
 WEB = Path(__file__).resolve().parent.parent / "web"
+
+
+class TtsRequest(BaseModel):
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("text 가 비어 있습니다")
+        return v.strip()[:1000]
 
 
 class TurnRequest(BaseModel):
@@ -24,7 +35,7 @@ class TurnRequest(BaseModel):
         return v.strip()
 
 
-def create_app(pipeline, domain: Domain) -> FastAPI:
+def create_app(pipeline, domain: Domain, tts=None) -> FastAPI:
     app = FastAPI(title=f"{domain.name} 음성 상담 에이전트")
 
     @app.get("/")
@@ -33,7 +44,7 @@ def create_app(pipeline, domain: Domain) -> FastAPI:
 
     @app.get("/api/domain")
     def get_domain():
-        return {"name": domain.name, "greeting": domain.greeting}
+        return {"name": domain.name, "greeting": domain.greeting, "tts_available": tts is not None}
 
     @app.post("/api/call/start")
     def start_call():
@@ -45,6 +56,13 @@ def create_app(pipeline, domain: Domain) -> FastAPI:
             return pipeline.turn(req.call_id, req.text).to_dict()
         except KeyError:  # Pipeline.turn에서 call_id 조회 실패만 처리
             raise HTTPException(status_code=404, detail="알 수 없는 call_id 입니다")
+
+    @app.post("/api/tts")
+    def synthesize(req: TtsRequest):
+        # 서버 TTS 가 없으면 브라우저 음성으로 대체하라는 뜻으로 501
+        if tts is None:
+            raise HTTPException(status_code=501, detail="서버 TTS 가 설정되지 않았습니다")
+        return Response(content=tts(req.text), media_type="audio/mpeg")
 
     @app.exception_handler(Exception)
     async def unhandled(request, exc):
@@ -61,5 +79,7 @@ def build_default_app() -> FastAPI:
     from server.domain import load_domain
     from server.pipeline import Pipeline
     settings = load_settings()
+    from server.tts import make_openai_tts
     domain = load_domain(settings.domains_root / settings.domain)
-    return create_app(Pipeline(domain, settings), domain)
+    tts = make_openai_tts(settings.tts_model, settings.tts_voice) if settings.tts_model else None
+    return create_app(Pipeline(domain, settings), domain, tts=tts)
