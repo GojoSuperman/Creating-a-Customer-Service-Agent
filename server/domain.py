@@ -1,0 +1,82 @@
+# -*- coding: utf-8 -*-
+"""도메인 폴더(domains/<이름>/)를 읽어 Domain 객체로 만든다.
+
+코드는 도메인 이름을 모른다. 매뉴얼·목 DB·라우트 정의·고정값·안내 문구는 전부 여기서 나온다.
+"""
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+ROUTES = ["ORDER_PLACE", "PRODUCT_INFO", "SHIPPING", "RETURN_REFUND", "OTHER"]
+REQUIRED_FILES = ["domain.json", "policy.md", "mockdb.json"]
+REQUIRED_KEYS = ["name", "greeting", "out_of_scope_message", "escalate_message", "routes",
+                 "always_sections", "routing_rules", "fixed_values", "small_numbers_allowed"]
+REQUIRED_DB_KEYS = ["categories", "same_day_delivery", "products", "orders", "returns", "restock"]
+
+
+class DomainError(ValueError):
+    """도메인 폴더가 불완전할 때. 무엇이 빠졌는지 메시지에 적는다."""
+
+
+@dataclass(frozen=True)
+class RouteDef:
+    label: str
+    definition: str
+    sections: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Domain:
+    name: str
+    greeting: str
+    out_of_scope_message: str
+    escalate_message: str
+    routes: dict[str, RouteDef]
+    always_sections: list[str]
+    routing_rules: str
+    fixed_values: dict
+    small_numbers_allowed: list[int]
+    policy_text: str
+    mockdb: dict
+    path: Path
+
+
+def load_domain(path: Path) -> Domain:
+    path = Path(path)
+    missing = [f for f in REQUIRED_FILES if not (path / f).exists()]
+    if missing:
+        raise DomainError(f"도메인 폴더 {path} 에 파일이 없습니다: {missing}")
+
+    cfg = json.loads((path / "domain.json").read_text(encoding="utf-8"))
+    missing_keys = [k for k in REQUIRED_KEYS if k not in cfg]
+    if missing_keys:
+        raise DomainError(f"domain.json 에 키가 없습니다: {missing_keys}")
+
+    if set(cfg["routes"]) != set(ROUTES):
+        raise DomainError(f"routes 는 정확히 {ROUTES} 여야 합니다. 현재: {sorted(cfg['routes'])}")
+    routes = {}
+    for name, r in cfg["routes"].items():
+        for k in ("label", "definition", "sections"):
+            if k not in r:
+                raise DomainError(f"routes.{name} 에 '{k}' 가 없습니다")
+        routes[name] = RouteDef(r["label"], r["definition"], list(r["sections"]))
+
+    mockdb = json.loads((path / "mockdb.json").read_text(encoding="utf-8"))
+    missing_db = [k for k in REQUIRED_DB_KEYS if k not in mockdb]
+    if missing_db:
+        raise DomainError(f"mockdb.json 에 키가 없습니다: {missing_db}")
+
+    return Domain(
+        name=cfg["name"],
+        greeting=cfg["greeting"],
+        out_of_scope_message=cfg["out_of_scope_message"],
+        escalate_message=cfg["escalate_message"],
+        routes=routes,
+        always_sections=list(cfg["always_sections"]),
+        routing_rules=cfg["routing_rules"],
+        fixed_values=cfg["fixed_values"],
+        small_numbers_allowed=list(cfg["small_numbers_allowed"]),
+        policy_text=(path / "policy.md").read_text(encoding="utf-8"),
+        mockdb=mockdb,
+        path=path,
+    )

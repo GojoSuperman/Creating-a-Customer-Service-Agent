@@ -1,0 +1,49 @@
+{
+  "name": "모두몰",
+  "greeting": "안녕하세요, 모두몰 고객센터입니다. 무엇을 도와드릴까요?",
+  "out_of_scope_message": "해당 내용은 저희 모두몰에서 안내드리기 어려운 부분입니다. 주문하신 사이트나 해당 업체의 고객센터로 문의해 주시기 바랍니다. 감사합니다.",
+  "escalate_message": "정확한 확인을 위해 상담원에게 연결해 드리겠습니다. 잠시만 기다려 주세요.",
+  "routes": {
+    "ORDER_PLACE": {
+      "label": "주문·구매",
+      "definition": "구매·주문 접수, 구매 가능 여부, 수량·옵션 변경 요청 (담당: 주문)",
+      "sections": ["2"]
+    },
+    "PRODUCT_INFO": {
+      "label": "상품 문의",
+      "definition": "상품 구성·품질·소재·사이즈·재고 문의 (담당: 상품)",
+      "sections": ["3"]
+    },
+    "SHIPPING": {
+      "label": "배송",
+      "definition": "배송비, 배송 기간, 배송 조회, 무료배송 조건 (담당: 배송)",
+      "sections": ["4"]
+    },
+    "RETURN_REFUND": {
+      "label": "교환·반품·환불",
+      "definition": "교환·반품·환불 신청 및 처리 현황 (담당: 반품)",
+      "sections": ["5", "6"]
+    },
+    "OTHER": {
+      "label": "범위 밖",
+      "definition": "위 네 유형에 해당하지 않는 응대 범위 밖 문의",
+      "sections": []
+    }
+  },
+  "always_sections": ["이 매뉴얼을 쓰는 방법", "0", "1", "7", "8"],
+  "routing_rules": "[분류 원칙 — 매뉴얼 1.1]\n고객이 쓴 단어가 아니라, 고객이 원하는 결과로 판단한다.\nORDER_PLACE 와 PRODUCT_INFO 는 어휘가 거의 같다(\"살 수 있나요\"). 바로 구매를 진행할 의사가 보이면 ORDER_PLACE, 살지 말지 판단하려고 정보를 묻는 것이면 PRODUCT_INFO 다.\n\n[분류 우선순위 — 매뉴얼 1.2]\n1) 응대 범위 밖이면 OTHER\n2) 진행 중인 반품·교환 건에 관한 문의면 RETURN_REFUND\n3) 그 외는 위 네 라우트\n\n[범위 밖 판단 — 매뉴얼 7.1]\n모두몰은 온라인 전용이며 오프라인 매장이 없다. 매장 위치·영업시간·주차 문의, 타 오픈마켓·제휴몰 주문 건, 제조사 A/S 문의는 모두 OTHER 다.",
+  "fixed_values": {
+    "base_shipping_fee": 2500,
+    "return_fee_full": 5000,
+    "return_fee_partial": 2500,
+    "cutoff_hour": 11,
+    "delivery_days_metro": [1, 2],
+    "delivery_days_other": [3, 4],
+    "delivery_days_std": [1, 3],
+    "return_total_days": [3, 7],
+    "inspect_days": [2, 3],
+    "pickup_days": [1, 2],
+    "designated_courier": "롯데택배"
+  },
+  "small_numbers_allowed": [1, 2, 3, 4, 5, 7, 11]
+}
