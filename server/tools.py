@@ -69,14 +69,11 @@ def _toks(s: str) -> list[str]:
 
 
 def make_tools(domain: Domain) -> dict[str, Callable]:
-    db = domain.mockdb
-    products = {p["product_id"]: p for p in db["products"]}
-    orders = {o["order_id"]: o for o in db["orders"]}
-    returns = {r["return_id"]: r for r in db["returns"]}
-    returns_by_order = {r["order_id"]: r for r in db["returns"]}
-    restock = {r["product_id"]: r for r in db["restock"]}
-    categories = db["categories"]
-    same_day = db["same_day_delivery"]
+    from server.repo import Repo
+    repo = Repo(domain.db_path)
+    products = {p["product_id"]: p for p in repo.products()}   # search_product 후보용 메모리 사본
+    categories = repo.categories()
+    same_day = repo.same_day()
     base_fee = domain.fixed_values["base_shipping_fee"]
     synonyms = domain.search["synonyms"]
     aliases = domain.search["aliases"]
@@ -192,13 +189,15 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
 
     def get_order_status(order_id: str) -> dict:
         """주문번호로 주문의 현재 진행 단계와 배송 정보를 조회한다."""
-        o = orders.get(order_id)
+        o = repo.order(order_id)
         if not o:
             return {"error": "주문을 찾을 수 없습니다", "order_id": order_id}
         keys = ["order_id", "status", "status_detail", "is_external_channel", "items",
                 "order_amount", "shipping_fee", "address_region", "courier", "tracking_no",
                 "invoice_printed", "expected_ship_date"]
-        return clean({k: o[k] for k in keys if k in o})
+        out = {k: o[k] for k in keys if k in o}
+        out["events"] = repo.shipment_events(order_id)
+        return clean(out)
 
     def get_product_detail(product_id: str) -> dict:
         """상품 ID로 구성·소재·원산지·재고·보증서 동봉 여부를 조회한다."""
@@ -273,7 +272,7 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
     def get_return_policy(product_id: Optional[str] = None, order_id: Optional[str] = None) -> dict:
         """상품 또는 주문의 반품 가능 기간과 조건을 조회한다."""
         if order_id:
-            o = orders.get(order_id)
+            o = repo.order(order_id)
             if not o:
                 return {"error": "주문을 찾을 수 없습니다", "order_id": order_id}
             product_id = o["items"][0]["product_id"]
@@ -295,7 +294,7 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
 
     def get_return_status(order_id: Optional[str] = None, return_id: Optional[str] = None) -> dict:
         """반품·교환의 현재 처리 단계를 조회한다. 검품 전에는 귀책이 확정되지 않는다(null)."""
-        r = returns.get(return_id) if return_id else returns_by_order.get(order_id)
+        r = repo.return_by_id(return_id) if return_id else repo.return_by_order(order_id)
         if not r:
             return {"error": "반품 접수 내역을 찾을 수 없습니다",
                     "order_id": order_id, "return_id": return_id}
@@ -303,7 +302,7 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
 
     def get_restock_info(product_id: str) -> dict:
         """품절 상품의 재입고 확정 여부와 예정일을 조회한다. is_confirmed 가 false 면 예정일을 확답하지 않는다."""
-        r = restock.get(product_id)
+        r = repo.restock(product_id)
         if not r:
             p = products.get(product_id)
             if p and p.get("stock"):
@@ -317,6 +316,21 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
         return {"escalated": True, "reason": reason, "context": context or {},
                 "message": domain.escalate_message}
 
+    def find_customer(phone: Optional[str] = None, order_id: Optional[str] = None) -> dict:
+        """전화번호 또는 주문번호로 고객과 최근 주문 3건을 찾는다. 통화 고객이 '그 주문'처럼 말할 때
+        주문번호를 알아내는 용도다."""
+        c = None
+        if phone:
+            c = repo.customer_by_phone(phone)
+        elif order_id:
+            o = repo.order(order_id)
+            c = repo.customer(o["customer_id"]) if o and o.get("customer_id") else None
+        if not c:
+            return {"error": "고객을 찾을 수 없습니다", "phone": phone, "order_id": order_id}
+        return clean({"customer_id": c["customer_id"], "name": c["name"], "address_region": c["address_region"],
+                      "recent_orders": repo.recent_orders(c["customer_id"], limit=3)})
+
     return {f.__name__: f for f in [search_product, get_order_status, get_product_detail,
                                     get_product_options, get_shipping_policy, get_return_policy,
-                                    get_return_status, get_restock_info, escalate_to_agent]}
+                                    get_return_status, get_restock_info, escalate_to_agent,
+                                    find_customer]}
