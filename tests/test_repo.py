@@ -58,3 +58,61 @@ def test_call_log_roundtrip(repo):
     repo.finish_call("test-call", "2026-09-16T10:03:00", [{"q": "배송비", "action": "ANSWER"}])
     row = repo.call("test-call")
     assert row["ended_at"] == "2026-09-16T10:03:00" and row["turns"][0]["action"] == "ANSWER"
+
+
+def test_json_cols_size_matching(repo):
+    p = repo.product("P1003")
+    assert isinstance(p["size_matching"], dict)
+    assert "75A" in p["size_matching"] and p["size_matching"]["75A"] == "팬티 90"
+
+
+def test_json_cols_exchange_target(repo):
+    r = repo.return_by_id("R-2003")
+    assert isinstance(r["exchange_target"], dict)
+    assert r["exchange_target"]["product_id"] == "P4002"
+
+
+def test_made_to_order_days_mto(repo):
+    p = repo.product("P3003")
+    assert p["made_to_order"] is True
+    assert p["made_to_order_days"] == [5, 7]
+
+
+def test_made_to_order_days_non_mto(repo):
+    p = repo.product("P1001")  # Non-MTO product
+    assert p["made_to_order"] is False
+    # made_to_order_days should be None or int for non-MTO
+    assert p["made_to_order_days"] is None or isinstance(p["made_to_order_days"], int)
+
+
+def test_concurrent_access(repo):
+    import threading
+
+    results = {"exceptions": [], "orders": []}
+
+    def read_order():
+        try:
+            for _ in range(20):
+                order = repo.order("O-1001")
+                results["orders"].append(order)
+        except Exception as e:
+            results["exceptions"].append(e)
+
+    def log_and_finish():
+        try:
+            repo.log_call("concurrent-test", None, "2026-09-16T10:00:00")
+            repo.finish_call("concurrent-test", "2026-09-16T10:03:00", [{"q": "테스트", "action": "ANSWER"}])
+        except Exception as e:
+            results["exceptions"].append(e)
+
+    threads = [threading.Thread(target=read_order) for _ in range(8)]
+    threads.append(threading.Thread(target=log_and_finish))
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(results["exceptions"]) == 0, f"Concurrent access errors: {results['exceptions']}"
+    assert len(results["orders"]) == 160  # 8 threads × 20 reads
+    assert all(o["customer_id"] == "C-0001" for o in results["orders"])

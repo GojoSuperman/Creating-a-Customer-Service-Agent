@@ -3,10 +3,11 @@
 import json
 import re
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Optional
 
-JSON_COLS = {"components", "options", "size_chart", "individual_prices", "turns"}
+JSON_COLS = {"components", "options", "size_chart", "individual_prices", "turns", "size_matching", "exchange_target"}
 BOOL_COLS = {"is_set", "has_quality_cert", "made_to_order", "individual_purchase_allowed", "return_allowed", "soldout",
              "is_external_channel", "free_shipping_applied", "invoice_printed", "exchange_available", "convert_to_refund",
              "is_soldout", "is_confirmed", "notify_available", "available", "requires_unopened"}
@@ -28,6 +29,8 @@ def _row(r: Optional[sqlite3.Row]) -> Optional[dict]:
     for k, v in d.items():
         if k in JSON_COLS and isinstance(v, str):
             d[k] = json.loads(v)
+        elif k == "made_to_order_days" and isinstance(v, str) and (v.startswith("[") or v.startswith("{")):
+            d[k] = json.loads(v)
         elif k in BOOL_COLS and v is not None:
             d[k] = bool(v)
     return d
@@ -37,12 +40,15 @@ class Repo:
     def __init__(self, db_path: Path):
         self.con = sqlite3.connect(str(db_path), check_same_thread=False)
         self.con.row_factory = sqlite3.Row
+        self._lock = threading.RLock()
 
     def _one(self, sql, *args):
-        return _row(self.con.execute(sql, args).fetchone())
+        with self._lock:
+            return _row(self.con.execute(sql, args).fetchone())
 
     def _all(self, sql, *args):
-        return [_row(r) for r in self.con.execute(sql, args).fetchall()]
+        with self._lock:
+            return [_row(r) for r in self.con.execute(sql, args).fetchall()]
 
     def product(self, pid): return self._one("select * from products where product_id=?", pid)
     def products(self): return self._all("select * from products order by product_id")
@@ -77,11 +83,14 @@ class Repo:
         return out
 
     def log_call(self, call_id, customer_id, started_at):
-        self.con.execute("insert or replace into call_logs (call_id,customer_id,started_at) values (?,?,?)", (call_id, customer_id, started_at))
-        self.con.commit()
+        with self._lock:
+            self.con.execute("insert or replace into call_logs (call_id,customer_id,started_at) values (?,?,?)", (call_id, customer_id, started_at))
+            self.con.commit()
 
     def finish_call(self, call_id, ended_at, turns):
-        self.con.execute("update call_logs set ended_at=?, turns=? where call_id=?", (ended_at, json.dumps(turns, ensure_ascii=False), call_id))
-        self.con.commit()
+        # If call_id doesn't exist, this is a no-op (update affects 0 rows).
+        with self._lock:
+            self.con.execute("update call_logs set ended_at=?, turns=? where call_id=?", (ended_at, json.dumps(turns, ensure_ascii=False), call_id))
+            self.con.commit()
 
     def call(self, call_id): return self._one("select * from call_logs where call_id=?", call_id)
