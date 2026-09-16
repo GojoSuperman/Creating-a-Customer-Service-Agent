@@ -91,6 +91,8 @@ class AgentState(TypedDict, total=False):
     history: Annotated[list, operator.add]   # 리듀서: 턴마다 쌓인다
     route: str
     confidence: float
+    route_alt: Optional[str]
+    alt_confidence: float
     action: str        # HANDLE / ASK / ANSWER / RETRY / ESCALATE / OUT_OF_SCOPE
     tools: list
     results: dict
@@ -113,6 +115,8 @@ class TurnResult:
     elapsed_ms: int
     end_call: bool
     attempts: int
+    route_alt: Optional[str] = None
+    alt_confidence: Optional[float] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -124,7 +128,8 @@ class Pipeline:
         self.settings = settings
         if router is None:
             from server.router import build_router
-            router = build_router(domain, settings.conf_threshold, model=settings.router_model)
+            router = build_router(domain, settings.conf_threshold, model=settings.router_model,
+                                  conf_margin=settings.conf_margin)
         if answerer is None:
             from server.answer import Answerer
             answerer = Answerer(domain, model=settings.answer_model, max_tool_turns=settings.max_tool_turns)
@@ -146,6 +151,7 @@ class Pipeline:
             q = f"{q} (직전 발화: {' / '.join(hist)})"   # 현재 문의를 앞에 둬 라우팅이 이력에 끌리지 않게
         r = self.router.invoke({"question": q})
         base = {"route": r["route"], "confidence": r["confidence"], "action": r["action"],
+                "route_alt": r.get("route_alt"), "alt_confidence": r.get("alt_confidence", 0.0),
                 "attempts": 0, "tools": [], "results": {}, "guardrail": None}
         count = state.get("clarify_count", 0)
         if r["action"] == "ESCALATE" and count < self.settings.clarify_max:
@@ -337,4 +343,5 @@ class Pipeline:
         return TurnResult(answer=out["answer"], route=out.get("route"), confidence=out.get("confidence"),
                           action=action, tools=out.get("tools") or [], guardrail=out.get("guardrail"),
                           elapsed_ms=int((time.perf_counter() - t0) * 1000), end_call=end,
-                          attempts=out.get("attempts", 0))
+                          attempts=out.get("attempts", 0),
+                          route_alt=out.get("route_alt"), alt_confidence=out.get("alt_confidence"))

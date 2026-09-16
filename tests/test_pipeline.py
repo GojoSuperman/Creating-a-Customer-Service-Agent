@@ -355,3 +355,32 @@ def test_sample_customers_carry_hint_and_profile(domain, settings):
     assert prof["customer_id"] == cid and "address" in prof
     _, _, cust = p.start_call(samples[0]["phone"])
     assert "address" not in cust                      # 프롬프트용 고객 dict 는 그대로 주소 없음
+
+
+def test_turn_result_carries_alt_route(domain, settings):
+    classify = lambda q: RouteDecision(route="PRODUCT_INFO", confidence=0.9, reason="t",
+                                       route_alt="ORDER_PLACE", alt_confidence=0.3)
+    router = build_router(domain, 0.5, classify=classify)
+    ans = FakeAnswerer([("네 확인했습니다.", {"get_product_detail": {}}, [])])
+    p = Pipeline(domain, settings, router=router, answerer=ans)
+    cid, _, _ = p.start_call()
+    r = p.turn(cid, "낱개로도 구매 가능한가요?")
+    assert r.route_alt == "ORDER_PLACE" and r.alt_confidence == 0.3
+    assert "route_alt" in r.to_dict()
+
+
+def test_pipeline_passes_conf_margin_to_router(domain, modumall_dir, tmp_path, monkeypatch):
+    import server.router as router_mod
+    seen = {}
+    real = router_mod.build_router
+
+    def spy(domain_, threshold, classify=None, model=None, conf_margin=0.0):
+        seen["margin"] = conf_margin
+        return real(domain_, threshold, classify=lambda q: RouteDecision(route="SHIPPING", confidence=0.9, reason="t"),
+                    conf_margin=conf_margin)
+    monkeypatch.setattr(router_mod, "build_router", spy)
+    s = Settings(router_model="x", answer_model="x", conf_threshold=0.5, max_tool_turns=3, guardrail_retry=1,
+                 domain="modumall", domains_root=modumall_dir.parent, logs_dir=tmp_path / "logs",
+                 clarify_max=1, conf_margin=0.25)
+    Pipeline(domain, s, answerer=FakeAnswerer([]))
+    assert seen["margin"] == 0.25

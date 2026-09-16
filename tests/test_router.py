@@ -66,3 +66,41 @@ def test_answer_rules_mention_procedure(domain):
     assert "null" in rules
     assert domain.name in rules
     assert "not_in_catalog 가 false" in rules
+
+
+def fixed_alt(route, conf, alt, alt_conf):
+    return lambda q: RouteDecision(route=route, confidence=conf, reason="테스트",
+                                   route_alt=alt, alt_confidence=alt_conf)
+
+
+def test_margin_gate_escalates_when_alternatives_are_close(domain):
+    g = build_router(domain, 0.5, classify=fixed_alt("PRODUCT_INFO", 0.7, "ORDER_PLACE", 0.6), conf_margin=0.2)
+    out = g.invoke({"question": "낱개로도 구매 가능한가요?"})
+    assert out["action"] == "ESCALATE"
+    assert out["route_alt"] == "ORDER_PLACE" and out["alt_confidence"] == 0.6
+
+
+def test_margin_gate_handles_when_margin_is_wide(domain):
+    g = build_router(domain, 0.5, classify=fixed_alt("PRODUCT_INFO", 0.9, "ORDER_PLACE", 0.2), conf_margin=0.2)
+    assert g.invoke({"question": "x"})["action"] == "HANDLE"
+
+
+def test_margin_boundary_is_inclusive(domain):
+    g = build_router(domain, 0.5, classify=fixed_alt("SHIPPING", 0.8, "RETURN_REFUND", 0.6), conf_margin=0.2)
+    assert g.invoke({"question": "x"})["action"] == "HANDLE"
+
+
+def test_no_alt_route_means_full_margin(domain):
+    g = build_router(domain, 0.5, classify=fixed("SHIPPING", 0.6), conf_margin=0.9)
+    out = g.invoke({"question": "x"})
+    assert out["action"] == "HANDLE" and out["route_alt"] is None
+
+
+def test_margin_disabled_by_default(domain):
+    g = build_router(domain, 0.5, classify=fixed_alt("SHIPPING", 0.55, "RETURN_REFUND", 0.54))
+    assert g.invoke({"question": "x"})["action"] == "HANDLE"
+
+
+def test_route_guide_asks_for_alt_route(domain):
+    guide = build_route_guide(domain)
+    assert "route_alt" in guide and "0.5 미만" in guide

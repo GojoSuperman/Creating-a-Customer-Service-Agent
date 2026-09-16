@@ -86,6 +86,7 @@ export function createPanel(root) {
       card.innerHTML = `
         <div class="q">고객: ${esc(question)}</div>
         <div class="row"><b>라우트</b> ${esc(r.route || "-")} <span class="${low ? "bad" : ""}">conf ${r.confidence == null ? "-" : r.confidence.toFixed(2)}</span>
+          ${r.route_alt ? `<span class="muted">2순위 ${esc(r.route_alt)} ${Number(r.alt_confidence || 0).toFixed(2)}</span>` : ""}
           <span class="badge ${bad ? "badge-bad" : ""}">${esc(r.action)}</span>${retryBadge}</div>
         <div class="row"><b>도구</b><ul>${tools}</ul></div>
         <div class="row"><b>가드레일</b> ${guard}</div>

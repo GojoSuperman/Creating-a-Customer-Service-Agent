@@ -19,8 +19,10 @@ def build_route_guide(domain: Domain) -> str:
 {domain.routing_rules}
 
 [확신도 지침]
-두 라우트 사이에서 결정하기 어려우면 confidence 를 0.5 미만으로 낮춰라. 애매한 것을 확신 있게
-답하는 것보다, 애매하다고 밝히는 것이 이 시스템에서는 더 좋은 판단이다.
+가장 가능성 높은 라우트를 route 에, 두 번째로 가능성 높은 라우트를 route_alt 에 쓰고 각각의 확신도를
+confidence, alt_confidence 로 낸다. 둘의 차이가 작을수록 애매한 문의다. 두 라우트 사이에서 결정하기
+어려우면 confidence 를 0.5 미만으로 낮춰라. 애매한 것을 확신 있게 답하는 것보다, 애매하다고 밝히는
+것이 이 시스템에서는 더 좋은 판단이다. 다른 후보가 전혀 없으면 route_alt 를 null 로 둔다.
 """
 
 

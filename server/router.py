@@ -19,10 +19,14 @@ Route = Literal["ORDER_PLACE", "PRODUCT_INFO", "SHIPPING", "RETURN_REFUND", "OTH
 
 class RouteDecision(BaseModel):
     """고객 문의 한 건에 대한 라우팅 판단 결과."""
-    route: Route = Field(description="문의를 배정할 라우트. 5개 값 중 하나만 사용한다.")
+    route: Route = Field(description="가장 가능성 높은 라우트. 5개 값 중 하나만 사용한다.")
     confidence: float = Field(ge=0.0, le=1.0,
-                              description="판단의 확신도. 두 라우트 사이에서 애매하면 0.5 미만으로 낮춘다.")
+                              description="route 의 확신도. 두 라우트 사이에서 애매하면 0.5 미만으로 낮춘다.")
     reason: str = Field(description="그 라우트로 판단한 근거를 한 문장으로. 고객이 원하는 결과를 기준으로 쓴다.")
+    route_alt: Optional[Route] = Field(default=None,
+                                       description="두 번째로 가능성 높은 라우트. 다른 후보가 전혀 없으면 null.")
+    alt_confidence: float = Field(default=0.0, ge=0.0, le=1.0,
+                                  description="route_alt 의 확신도. route_alt 가 null 이면 0.")
 
 
 class RouterState(TypedDict, total=False):
@@ -30,6 +34,8 @@ class RouterState(TypedDict, total=False):
     route: str
     confidence: float
     reason: str
+    route_alt: Optional[str]
+    alt_confidence: float
     action: str            # HANDLE / ESCALATE / OUT_OF_SCOPE
     message: Optional[str]
 
@@ -66,7 +72,7 @@ def make_llm_classifier(domain: Domain, model: str) -> Callable[[str], RouteDeci
 
 def build_router(domain: Domain, conf_threshold: float,
                  classify: Optional[Callable[[str], RouteDecision]] = None,
-                 model: Optional[str] = None):
+                 model: Optional[str] = None, conf_margin: float = 0.0):
     if classify is None:
         if model is None:
             raise ValueError("classify 또는 model 중 하나는 있어야 합니다")
@@ -74,10 +80,13 @@ def build_router(domain: Domain, conf_threshold: float,
 
     def node_classify(state: RouterState) -> RouterState:
         d = classify(state["question"])
-        return {"route": d.route, "confidence": d.confidence, "reason": d.reason}
+        return {"route": d.route, "confidence": d.confidence, "reason": d.reason,
+                "route_alt": d.route_alt, "alt_confidence": d.alt_confidence if d.route_alt else 0.0}
 
     def node_gate(state: RouterState) -> RouterState:
-        if state["confidence"] < conf_threshold:
+        # 마진 = 1순위 확신도 - 2순위 확신도. 2순위가 없으면 1.0(애매하지 않음)으로 본다.
+        margin = 1.0 if state.get("route_alt") is None else state["confidence"] - state.get("alt_confidence", 0.0)
+        if state["confidence"] < conf_threshold or margin < conf_margin:
             return {"action": "ESCALATE", "message": domain.escalate_message}
         if state["route"] == "OTHER":
             return {"action": "OUT_OF_SCOPE", "message": domain.out_of_scope_message}
