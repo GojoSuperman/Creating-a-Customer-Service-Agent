@@ -41,9 +41,30 @@ def infer_action(text: str, results: dict) -> str:
     return "ANSWER"
 
 
+_KO_DIGIT = {"공": "0", "영": "0", "일": "1", "이": "2", "삼": "3", "사": "4",
+             "오": "5", "육": "6", "륙": "6", "칠": "7", "팔": "8", "구": "9"}
+_PREFIX_WORDS = {"제로": "O", "영": "O", "공": "O", "오": "O", "오우": "O", "o": "O", "O": "O", "0": "O",
+                 "알": "R", "아르": "R", "r": "R", "R": "R", "피": "P", "p": "P", "P": "P"}
+_SEP = r"(?:\s*(?:다시|대시|대쉬|하이픈|빼기|-)\s*)"
+
+
 def normalize_stt(text: str) -> str:
-    """음성 인식이 흔히 틀리는 식별자 표기를 바로잡는다. "0-1001" → "O-1001", "o-1001" → "O-1001"."""
-    return re.sub(r"\b[0oO]-(\d{4})\b", r"O-\1", text)
+    """음성 인식 결과에서 식별자를 복원한다.
+
+    "제로 다시 1006" / "영 다시 일공공육" / "0-1006" / "o-1006" → "O-1006",
+    "알 다시 2001" → "R-2001", "1001번 주문" → "O-1001번 주문".
+    인식기가 숫자를 잘라 버린 경우(1006→100)는 복구할 수 없다.
+    """
+    # 1) 한글로 읽힌 숫자 묶음 (3자리 이상만 — "이 상품" 같은 일상어 오변환 방지)
+    text = re.sub(r"(?<![가-힣])[공영일이삼사오육륙칠팔구]{3,4}(?![가-힣])",
+                  lambda m: "".join(_KO_DIGIT[c] for c in m.group(0)), text)
+    # 2) "<접두어> 다시 <숫자>" → "<O|R|P>-<숫자>"
+    words = "|".join(sorted(map(re.escape, _PREFIX_WORDS), key=len, reverse=True))
+    text = re.sub(rf"(?<![가-힣\w])({words}){_SEP}(\d{{3,4}})\b",
+                  lambda m: f"{_PREFIX_WORDS[m.group(1)]}-{m.group(2)}", text)
+    # 3) 접두어 없이 "1001번 주문"처럼 말한 4자리 숫자 → 주문번호
+    text = re.sub(r"(?<![\w-])(\d{4})(\s*번)?(\s*주문)", r"O-\1\2\3", text)
+    return text
 
 
 class AgentState(TypedDict, total=False):

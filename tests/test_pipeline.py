@@ -203,3 +203,19 @@ def test_stt_order_id_is_normalized(domain, settings):
     p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
     p.turn(p.start_call(), "0-1001 주문 언제 와요")
     assert ans.questions[0][0].startswith("O-1001")
+
+
+def test_normalize_stt_spoken_order_ids():
+    from server.pipeline import normalize_stt
+    assert normalize_stt("제로 다시 1006 주문 언제 와요") == "O-1006 주문 언제 와요"
+    assert normalize_stt("영 다시 일공공육 반품 배송비 누가 내요") == "O-1006 반품 배송비 누가 내요"
+    assert normalize_stt("0-1001 주문이요") == "O-1001 주문이요"
+    assert normalize_stt("알 다시 2001 어떻게 됐어요") == "R-2001 어떻게 됐어요"
+    assert normalize_stt("1001번 주문 언제 출고돼요") == "O-1001번 주문 언제 출고돼요"
+    assert normalize_stt("0-100 반품 배송비") == "O-100 반품 배송비"     # 잘린 숫자는 복구 못 함
+
+
+def test_normalize_stt_leaves_ordinary_text_alone():
+    from server.pipeline import normalize_stt
+    for t in ["이 상품 소재가 뭐예요", "오 늘 배송 돼요", "사이즈 삼 개요", "캔버스화 배송비 얼마예요", "2026년 9월 1일"]:
+        assert normalize_stt(t) == t
