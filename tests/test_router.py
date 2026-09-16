@@ -104,3 +104,14 @@ def test_margin_disabled_by_default(domain):
 def test_route_guide_asks_for_alt_route(domain):
     guide = build_route_guide(domain)
     assert "route_alt" in guide and "0.5 미만" in guide
+
+
+def test_negative_margin_does_not_escalate_when_margin_gate_disabled(domain):
+    g = build_router(domain, 0.5, classify=fixed_alt("SHIPPING", 0.6, "RETURN_REFUND", 0.7))
+    assert g.invoke({"question": "x"})["action"] == "HANDLE"
+
+
+def test_same_route_as_alt_is_treated_as_no_alternative(domain):
+    g = build_router(domain, 0.5, classify=fixed_alt("SHIPPING", 0.6, "SHIPPING", 0.59), conf_margin=0.3)
+    out = g.invoke({"question": "x"})
+    assert out["action"] == "HANDLE" and out["route_alt"] is None and out["alt_confidence"] == 0.0

@@ -80,12 +80,15 @@ def build_router(domain: Domain, conf_threshold: float,
 
     def node_classify(state: RouterState) -> RouterState:
         d = classify(state["question"])
+        # 2순위가 1순위와 같은 라우트면 후보가 하나뿐이라는 뜻이니 없는 것으로 본다.
+        alt = None if d.route_alt == d.route else d.route_alt
         return {"route": d.route, "confidence": d.confidence, "reason": d.reason,
-                "route_alt": d.route_alt, "alt_confidence": d.alt_confidence if d.route_alt else 0.0}
+                "route_alt": alt, "alt_confidence": d.alt_confidence if alt else 0.0}
 
     def node_gate(state: RouterState) -> RouterState:
         # 마진 = 1순위 확신도 - 2순위 확신도. 2순위가 없으면 1.0(애매하지 않음)으로 본다.
-        margin = 1.0 if state.get("route_alt") is None else state["confidence"] - state.get("alt_confidence", 0.0)
+        # 모델이 2순위를 더 높게 낸 경우(음수)는 0 으로 깎아, conf_margin=0.0 이면 게이트가 확실히 비활성이다.
+        margin = 1.0 if state.get("route_alt") is None else max(0.0, state["confidence"] - state.get("alt_confidence", 0.0))
         if state["confidence"] < conf_threshold or margin < conf_margin:
             return {"action": "ESCALATE", "message": domain.escalate_message}
         if state["route"] == "OTHER":
