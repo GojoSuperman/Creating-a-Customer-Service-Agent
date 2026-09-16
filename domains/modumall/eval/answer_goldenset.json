@@ -1,0 +1,1898 @@
+{
+  "$comment": "모두몰 답변 정답셋 (멀티턴) v1.0 — 교육용. policy_modumall.md + mockdata_modumall.json 으로 정답이 결정되는 대화만 저작했다. 원본 상담 데이터의 answer 컬럼은 서로 모순되고 사실오류가 있어 답변 정답으로 쓸 수 없으므로, 이 파일은 provenance=합성 이다. 질문 표현은 원본 데이터의 실제 발화 패턴을 참고했다.",
+  "version": "1.1",
+  "as_of_date": "2026-08-21",
+  "provenance": "합성",
+  "grounding": [
+    "policy_modumall.md v1.1",
+    "mockdata_modumall.json v1.0"
+  ],
+  "schema": {
+    "action": {
+      "ASK": "식별자·조건이 부족해 되물어야 함. 🔧 변동값을 단정하면 실패.",
+      "ANSWER": "툴 조회 후 답변. tools 를 모두 호출하고 must 를 모두 포함해야 통과.",
+      "CONFIRM": "고객 동의가 필요한 처리. 동의 없이 진행하면 실패.",
+      "OUT_OF_SCOPE": "응대 범위 밖. 해당 채널 안내로 종료.",
+      "ESCALATE": "상담원 이관. escalate_to_agent 호출 필요."
+    },
+    "must": "답변에 반드시 포함되어야 하는 사실. 숫자는 콤마 유무 무관하게 비교한다.",
+    "forbid": "답변에 나타나면 실패하는 문자열. 주로 툴 조회 전 단정한 수치.",
+    "must_ask": "되물어야 하는 항목."
+  },
+  "conversations": [
+    {
+      "conv_id": "C-001",
+      "title": "배송비 문의 → 상품 특정 → 카테고리별 무료배송 기준 안내",
+      "route": "SHIPPING",
+      "pattern": "식별자요청",
+      "tests": [
+        "🔧 무료배송 기준 툴 조회 강제",
+        "카테고리별 기준액 차이",
+        "부족액 계산"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "혹시 배송비가 얼마인가요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ASK",
+            "tools": [],
+            "must_ask": [
+              "상품명 또는 상품 ID"
+            ],
+            "must": [
+              "2500"
+            ],
+            "forbid": [
+              "100000",
+              "40000",
+              "50000",
+              "20000",
+              "30000"
+            ],
+            "rubric": "기본 배송비 2,500원은 🔒 고정값이라 답해도 되지만, 무료배송 기준액은 상품 특정 전에 말하면 안 된다.",
+            "reference": "기본 배송비는 2,500원입니다. 무료배송 기준은 상품 카테고리별로 달라, 상품명을 알려주시면 정확히 확인해 드리겠습니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "캔버스화 한 켤레요."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_shipping_policy"
+            ],
+            "tool_args": {
+              "get_shipping_policy": {
+                "product_id": "P4001",
+                "order_amount": 59000
+              }
+            },
+            "must": [
+              "100000",
+              "2500",
+              "41000"
+            ],
+            "forbid": [
+              "40000"
+            ],
+            "rubric": "신발 카테고리 기준 100,000원. 의류 기준 40,000원으로 답하면 오답.",
+            "reference": "캔버스화는 신발 카테고리로 무료배송 기준이 100,000원입니다. 현재 금액 59,000원은 미해당으로 배송비 2,500원이 발생하며, 41,000원 더 구매하시면 무료배송입니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-002",
+      "title": "무료배송 경계값 → 부족액 재확인",
+      "route": "SHIPPING",
+      "pattern": "후속계산",
+      "tests": [
+        "경계값 판정",
+        "부족액 재질문 대응",
+        "카테고리 기준 유지"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "가죽 벨트 하나 사려는데 무료배송 되나요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_shipping_policy"
+            ],
+            "tool_args": {
+              "get_shipping_policy": {
+                "product_id": "P6001",
+                "order_amount": 39000
+              }
+            },
+            "must": [
+              "50000",
+              "2500"
+            ],
+            "forbid": [
+              "40000"
+            ],
+            "rubric": "가방·잡화 기준 50,000원. 39,000원이므로 미해당.",
+            "reference": "가죽 벨트는 가방·잡화 카테고리로 무료배송 기준이 50,000원입니다. 현재 39,000원은 미해당으로 배송비 2,500원이 발생합니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "그럼 얼마 더 사야 무료배송이에요?"
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [],
+            "must": [
+              "11000"
+            ],
+            "rubric": "앞 턴의 툴 결과(shortfall 11,000)를 재사용해 계산. 툴을 다시 부르지 않아도 통과.",
+            "reference": "11,000원 더 구매하시면 무료배송이 적용됩니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-003",
+      "title": "배송 조회 → 주문번호 → 지연 상태 안내",
+      "route": "SHIPPING",
+      "pattern": "식별자요청",
+      "tests": [
+        "주문 조회 없이 상태 단정 금지",
+        "지연 사유 고지",
+        "지역별 소요일"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "주문한 거 왜 아직 안 와요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ASK",
+            "tools": [],
+            "must_ask": [
+              "주문번호"
+            ],
+            "forbid": [
+              "배송 완료",
+              "출고 완료"
+            ],
+            "rubric": "조회 전 상태를 단정하면 정책 §0 원칙 2 위반.",
+            "reference": "확인을 위해 주문번호를 알려주시겠어요? 조회 후 현재 배송 상태를 안내해 드리겠습니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "O-1003이에요."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_order_status"
+            ],
+            "tool_args": {
+              "get_order_status": {
+                "order_id": "O-1003"
+              }
+            },
+            "must": [
+              "배송중",
+              "택배사 물량"
+            ],
+            "rubric": "지연 사유(택배사 물량 집중)를 고지하고 사과해야 한다. 수도권외 3~4영업일 기준.",
+            "reference": "현재 배송중이며, 택배사 물량 집중으로 1일 지연되고 있습니다. 수도권 외 지역은 3~4영업일이 소요되며, 늦어져 죄송합니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-004",
+      "title": "화장품 무료배송 미적용 안내",
+      "route": "SHIPPING",
+      "pattern": "단일턴확장",
+      "tests": [
+        "무료배송 대상 아닌 카테고리",
+        "금액 무관 배송비"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "트래블 키트 38,000원인데 무료배송 되나요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_shipping_policy"
+            ],
+            "tool_args": {
+              "get_shipping_policy": {
+                "product_id": "P5001",
+                "order_amount": 38000
+              }
+            },
+            "must": [
+              "2500"
+            ],
+            "forbid": [
+              "40000",
+              "무료배송입니다"
+            ],
+            "rubric": "화장품은 threshold 가 null. '기준액 미달'이 아니라 '대상 아님'으로 안내해야 한다.",
+            "reference": "화장품은 결제 금액과 무관하게 무료배송 대상이 아니며, 배송비 2,500원이 부과됩니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-005",
+      "title": "반품 기간 초과 → 하자 사유 확인 → 무료 반품 전환",
+      "route": "RETURN_REFUND",
+      "pattern": "조건분기",
+      "tests": [
+        "기간 초과 거절",
+        "하자 예외 선제 안내",
+        "귀책 전환",
+        "검품 후 확정 원칙"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "티셔츠 반품하고 싶은데 가능한가요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ASK",
+            "tools": [],
+            "must_ask": [
+              "주문번호"
+            ],
+            "rubric": "잔여 기간 계산에 주문번호가 필요하다.",
+            "reference": "주문번호를 알려주시면 반품 가능 기간을 확인해 드리겠습니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "O-1005요."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_return_policy"
+            ],
+            "tool_args": {
+              "get_return_policy": {
+                "order_id": "O-1005"
+              }
+            },
+            "must": [
+              "7",
+              "11",
+              "하자"
+            ],
+            "rubric": "거절만 하지 말고 '하자·오배송은 기간 무관 접수 가능' 예외를 반드시 함께 안내해야 한다. 이게 이 케이스의 핵심.",
+            "reference": "수령일 기준 7일 이내 신청 가능하나 11일이 경과하여 단순 변심 반품은 어렵습니다. 다만 하자·오배송인 경우에는 기간과 무관하게 접수 가능하니, 상품에 문제가 있으시면 말씀해 주세요."
+          }
+        },
+        {
+          "turn": 5,
+          "role": "customer",
+          "text": "박음질이 터져 있어요. 불량이에요."
+        },
+        {
+          "turn": 6,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [],
+            "must": [
+              "접수"
+            ],
+            "forbid": [
+              "고객님 부담",
+              "5000원을 부담"
+            ],
+            "rubric": "하자 신고이므로 접수로 전환. 단 하자 확정은 입고 후 검품 단계이므로 '판매자 부담 확정'으로 단정해서도 안 된다(정책 §6.4).",
+            "reference": "불량으로 접수 도와드리겠습니다. 하자 여부는 상품 입고 후 검품에서 확정되며, 하자로 확인되면 배송비는 저희가 부담하여 차감 없이 환불해 드립니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-006",
+      "title": "반품 검품 중 → 배송비 귀책 단정 금지",
+      "route": "RETURN_REFUND",
+      "pattern": "미확정상태",
+      "tests": [
+        "검품 전 귀책 단정 금지",
+        "절차 안내로 응대",
+        "부정 감성 대응"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "반품 신청한 거 지금 어떻게 됐어요? O-1006이에요."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_return_status"
+            ],
+            "tool_args": {
+              "get_return_status": {
+                "order_id": "O-1006"
+              }
+            },
+            "must": [
+              "검품"
+            ],
+            "rubric": "현재 단계(검품중)를 조회해 안내.",
+            "reference": "현재 상품이 입고되어 검품 중입니다. 검품 완료 후 순차적으로 승인 처리되며, 영업일 기준 2~3일 소요됩니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "그래서 배송비는 제가 내야 하는 거예요? 상품이 이상해서 보낸 건데요.",
+          "sentiment": "negative"
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [],
+            "must": [
+              "검품"
+            ],
+            "forbid": [
+              "고객님이 부담하셔야",
+              "5000원 차감",
+              "부담 확정"
+            ],
+            "rubric": "inspection_result 가 null 이므로 부담 주체를 단정하면 실패. '모든 반품 건에 동일하게 적용되는 절차'임을 설명해 고객을 안심시켜야 한다.",
+            "reference": "배송비 안내는 모든 반품 건에 동일하게 드리는 절차이며, 고객님을 의심하는 것이 아닙니다. 검품에서 하자로 확인되면 배송비는 저희가 부담하여 차감 없이 환불해 드립니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-007",
+      "title": "교환 신청 → 품절 확인 → 환불 전환 동의",
+      "route": "RETURN_REFUND",
+      "pattern": "동의확인",
+      "tests": [
+        "교환 불가 사유 안내",
+        "고객 동의 없이 처리 금지",
+        "환불액 계산"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "스니커즈 240으로 교환 신청했는데 언제 받을 수 있어요? 주문번호는 O-1008이에요."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "CONFIRM",
+            "tools": [
+              "get_return_status"
+            ],
+            "tool_args": {
+              "get_return_status": {
+                "order_id": "O-1008"
+              }
+            },
+            "must": [
+              "품절",
+              "환불"
+            ],
+            "forbid": [
+              "환불 처리했습니다",
+              "환불 완료"
+            ],
+            "rubric": "품절로 교환 불가 → 환불 전환을 '제안'하고 동의를 받아야 한다. 동의 없이 처리 완료로 답하면 실패(정책 §6.5).",
+            "reference": "교환 요청하신 240 사이즈가 전 사이즈 품절로 교환이 어렵습니다. 환불로 전환하여 처리해 드릴 수 있는데, 진행해 드려도 괜찮으실까요?"
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "네, 그럼 환불해 주세요."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [],
+            "must": [
+              "74000"
+            ],
+            "rubric": "환불액 74,000원 = 상품 79,000 - 왕복 배송비 5,000. 툴 결과의 refund_amount 를 그대로 사용.",
+            "reference": "환불로 전환 처리해 드렸습니다. 상품 금액 79,000원에서 왕복 배송비 5,000원이 차감되어 74,000원이 환불되며, 은행 영업일 기준 2~3일 소요됩니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-008",
+      "title": "환불 문의 → 외부 채널 주문 판정 → 범위 밖 안내",
+      "route": "RETURN_REFUND",
+      "pattern": "범위밖",
+      "tests": [
+        "외부 채널 감지",
+        "추측 답변 금지",
+        "정확한 이관 안내"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "환불 언제 되나요? O-1009 주문이요."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "OUT_OF_SCOPE",
+            "tools": [
+              "get_order_status"
+            ],
+            "tool_args": {
+              "get_order_status": {
+                "order_id": "O-1009"
+              }
+            },
+            "must": [
+              "고객센터"
+            ],
+            "forbid": [
+              "3~7영업일",
+              "2~3일 내로 환불"
+            ],
+            "rubric": "is_external_channel=true 이므로 일반 환불 기간을 답하면 안 된다. 해당 사이트 고객센터로 안내하고 종료.",
+            "reference": "해당 주문은 외부 채널 주문으로 확인되어, 환불 관련 내용은 주문하신 사이트의 고객센터를 통해 문의해 주셔야 확인이 가능합니다. 불편을 드려 죄송합니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-009",
+      "title": "화장품 반품 → 30일 기준 → 개봉 여부 확인 → 불가",
+      "route": "RETURN_REFUND",
+      "pattern": "조건분기",
+      "tests": [
+        "카테고리별 반품 기간 차이",
+        "미개봉 조건 확인",
+        "조건 미충족 거절"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "8월 초에 산 트래블 키트 반품 가능해요? O-1010이에요."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ASK",
+            "tools": [
+              "get_return_policy"
+            ],
+            "tool_args": {
+              "get_return_policy": {
+                "order_id": "O-1010"
+              }
+            },
+            "must": [
+              "30",
+              "미개봉"
+            ],
+            "must_ask": [
+              "개봉 여부"
+            ],
+            "forbid": [
+              "7일"
+            ],
+            "rubric": "화장품은 30일 기준이라 의류 7일로 답하면 오답. 미개봉 조건이 있으므로 개봉 여부를 되물어야 한다.",
+            "reference": "화장품은 구매일로부터 30일 이내 반품 가능하며 현재 잔여 10일 남았습니다. 다만 미개봉 상태여야 하는데, 혹시 개봉하셨을까요?"
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "토너는 한 번 써봤어요."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [],
+            "must": [
+              "개봉"
+            ],
+            "forbid": [
+              "반품 가능합니다",
+              "접수해 드렸"
+            ],
+            "rubric": "개봉 확인 → 불가로 판정. 사유를 명확히 밝히고 대안(하자 시 예외)을 안내한다.",
+            "reference": "죄송하지만 화장품은 개봉 시 반품이 불가합니다. 다만 상품 하자가 있는 경우에는 별도 접수가 가능하니 말씀해 주세요."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-010",
+      "title": "주문제작 상품 반품 요청 → 불가 안내",
+      "route": "RETURN_REFUND",
+      "pattern": "정책거절",
+      "tests": [
+        "주문제작 반품 불가",
+        "거절 사유 설명"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "핸드메이드 트렌치 코트 주문했는데 취소하고 반품하고 싶어요. O-1011이에요."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_return_policy"
+            ],
+            "tool_args": {
+              "get_return_policy": {
+                "order_id": "O-1011"
+              }
+            },
+            "must": [
+              "주문 제작"
+            ],
+            "forbid": [
+              "7일 이내 반품 가능",
+              "반품 접수해 드렸"
+            ],
+            "rubric": "return_allowed=false. 기간 계산이 아니라 상품 속성으로 불가.",
+            "reference": "해당 상품은 주문 제작 상품으로 교환·반품이 불가합니다. 현재 제작이 진행 중인 점 양해 부탁드립니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-011",
+      "title": "세트 개별구매 불가 → 다른 상품은 가능 (상품 전환)",
+      "route": "ORDER_PLACE",
+      "pattern": "상품전환",
+      "tests": [
+        "🔧 개별구매 여부 툴 조회",
+        "상품별로 답이 다름",
+        "동일 라우트 내 대상 전환"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "요일팬티 세트에서 하나만 살 수 있어요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_options"
+            ],
+            "tool_args": {
+              "get_product_options": {
+                "product_id": "P1001"
+              }
+            },
+            "must": [
+              "불가"
+            ],
+            "rubric": "개별구매 불가 상품. 툴 조회 없이 단정하면 실패.",
+            "reference": "요일팬티는 7장 1박스 구성으로만 판매되어 개별 구매는 불가합니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "그럼 커플링 반지는요? 남자 것만 사고 싶은데."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_options"
+            ],
+            "tool_args": {
+              "get_product_options": {
+                "product_id": "P2002"
+              }
+            },
+            "must": [
+              "46000"
+            ],
+            "forbid": [
+              "불가합니다"
+            ],
+            "rubric": "같은 '세트 개별구매' 질문인데 이 상품은 가능. 앞 턴 답변을 관성적으로 반복하면 실패. 상품이 바뀌면 툴을 다시 호출해야 한다.",
+            "reference": "커플링 반지는 남성용 단독 구매가 가능하며 가격은 46,000원입니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-012",
+      "title": "품절 확인 → 재입고 예정일 확답 금지 → 알림 신청",
+      "route": "PRODUCT_INFO",
+      "pattern": "확답금지",
+      "tests": [
+        "재고 조회",
+        "미확정 예정일 확답 금지",
+        "알림 신청 유도"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "스니커즈 230 사이즈 재고 있나요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_detail"
+            ],
+            "tool_args": {
+              "get_product_detail": {
+                "product_id": "P4002"
+              }
+            },
+            "must": [
+              "품절"
+            ],
+            "rubric": "stock=0, soldout=true.",
+            "reference": "스니커즈는 현재 전 사이즈 품절입니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "언제 다시 들어와요?"
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_restock_info"
+            ],
+            "tool_args": {
+              "get_restock_info": {
+                "product_id": "P4002"
+              }
+            },
+            "must": [
+              "알림"
+            ],
+            "forbid": [
+              "9월 1일",
+              "다음 주",
+              "이번 주"
+            ],
+            "rubric": "is_confirmed=false → 예정일을 확답하면 실패(정책 §2.5). 알림 신청으로 안내해야 한다.",
+            "reference": "재입고 일정이 아직 확정되지 않았습니다. 알림 신청을 해두시면 입고되는 즉시 연락드리겠습니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-013",
+      "title": "환불 지연 반복 불만 → 에스컬레이션",
+      "route": "RETURN_REFUND",
+      "pattern": "에스컬레이션",
+      "tests": [
+        "반복 문의 감지",
+        "보상 요구는 권한 밖",
+        "부정 감성 우선 배정"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "환불 언제 되나요? O-1007이요."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_return_status"
+            ],
+            "tool_args": {
+              "get_return_status": {
+                "order_id": "O-1007"
+              }
+            },
+            "must": [
+              "34000"
+            ],
+            "rubric": "승인 완료 상태, 환불액 34,000원(39,000 - 5,000).",
+            "reference": "반품 승인이 완료되어 34,000원이 환불 예정입니다. 상품 39,000원에서 왕복 배송비 5,000원이 차감된 금액이며, 은행 영업일 기준 2~3일 소요됩니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "아니 벌써 세 번째 물어보는 거예요. 왜 배송비를 내가 내야 하죠?",
+          "sentiment": "negative"
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [],
+            "must": [
+              "5000"
+            ],
+            "rubric": "단순 변심 전체 반품이므로 왕복 5,000원은 고객 부담이 맞다(inspection_result=정상). 근거를 제시해 설명한다.",
+            "reference": "검품 결과 상품에 하자가 없어 단순 변심 반품으로 처리되었고, 전체 반품 시 왕복 배송비 5,000원은 고객 부담입니다. 불편을 드려 죄송합니다."
+          }
+        },
+        {
+          "turn": 5,
+          "role": "customer",
+          "text": "납득이 안 되는데요. 배송비 돌려주고 보상도 해주세요.",
+          "sentiment": "negative"
+        },
+        {
+          "turn": 6,
+          "role": "agent",
+          "expect": {
+            "action": "ESCALATE",
+            "tools": [
+              "escalate_to_agent"
+            ],
+            "tool_args": {
+              "escalate_to_agent": {
+                "reason": "보상요구",
+                "sentiment": "negative",
+                "summary": "환불 배송비 귀책 불만, 3회 반복 문의 후 보상 요구. 주문 O-1007, 검품 결과 정상으로 왕복 배송비 5,000원 고객 부담 안내 완료.",
+                "order_id": "O-1007"
+              }
+            },
+            "must": [
+              "상담원"
+            ],
+            "forbid": [
+              "보상해 드리겠습니다",
+              "환불해 드리겠습니다"
+            ],
+            "rubric": "보상·손해배상은 권한 밖(정책 §7.2, §7.3). 임의 약속 금지, 이관 필수. sentiment=negative 로 우선 배정.",
+            "reference": "보상 관련 사항은 제가 결정할 수 있는 부분이 아니어서 상담원에게 연결해 드리겠습니다. 지금까지 문의하신 내용은 함께 전달해 두겠습니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-014",
+      "title": "배송비 문의 중 반품으로 화제 전환 → 라우트 재분류",
+      "route": "SHIPPING→RETURN_REFUND",
+      "pattern": "화제전환",
+      "tests": [
+        "멀티턴 중 라우트 재분류",
+        "앞 턴 문맥 유지",
+        "라우트별 정책 섹션 교체"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "레깅스 배송비 얼마예요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "route": "SHIPPING",
+            "tools": [
+              "get_shipping_policy"
+            ],
+            "tool_args": {
+              "get_shipping_policy": {
+                "product_id": "P3005",
+                "order_amount": 21000
+              }
+            },
+            "must": [
+              "40000",
+              "2500"
+            ],
+            "rubric": "의류 카테고리 기준 40,000원.",
+            "reference": "레깅스는 의류 카테고리로 무료배송 기준이 40,000원입니다. 21,000원은 미해당으로 배송비 2,500원이 발생합니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "아 그리고 지난번에 산 레깅스 반품하려는데 언제까지 가능해요? O-1004요."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "route": "RETURN_REFUND",
+            "tools": [
+              "get_return_policy"
+            ],
+            "tool_args": {
+              "get_return_policy": {
+                "order_id": "O-1004"
+              }
+            },
+            "must": [
+              "7",
+              "5"
+            ],
+            "forbid": [
+              "30일"
+            ],
+            "rubric": "라우트가 SHIPPING→RETURN_REFUND 로 전환되어야 한다. 배송 정책 섹션만 들고 있으면 답할 수 없다. 잔여 5일.",
+            "reference": "수령일 기준 7일 이내 반품 가능하며, 현재 잔여 5일 남았습니다."
+          }
+        },
+        {
+          "turn": 5,
+          "role": "customer",
+          "text": "반품비는 얼마예요?"
+        },
+        {
+          "turn": 6,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [],
+            "must": [
+              "5000",
+              "2500"
+            ],
+            "rubric": "🔒 고정값이므로 툴 없이 답해도 된다. 전체/부분 구분을 함께 안내.",
+            "reference": "전체 반품은 왕복 배송비 5,000원, 부분 반품은 2,500원입니다. 단순 변심의 경우 고객 부담입니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-015",
+      "title": "주문 변경 요청 → 송장 미출력 확인 → 변경 가능",
+      "route": "ORDER_PLACE",
+      "pattern": "식별자요청",
+      "tests": [
+        "송장 출력 여부로 변경 가능 판정",
+        "조회 없이 단정 금지"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "어제 주문한 티셔츠 사이즈를 L로 바꾸고 싶어요."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ASK",
+            "tools": [],
+            "forbid": [
+              "변경 가능합니다",
+              "변경이 불가"
+            ],
+            "must_ask": [
+              "주문번호"
+            ],
+            "rubric": "변경 가능 여부는 송장 출력 시점에 달려 있어 주문 조회가 필수다.",
+            "reference": "주문번호를 알려주시면 변경 가능 여부를 확인해 드리겠습니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "O-1001이에요."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_order_status"
+            ],
+            "tool_args": {
+              "get_order_status": {
+                "order_id": "O-1001"
+              }
+            },
+            "must": [
+              "2026-08-24"
+            ],
+            "forbid": [
+              "변경이 불가"
+            ],
+            "rubric": "invoice_printed=false → 송장 출력 전이므로 변경 가능. 출고 예정일도 함께 안내.",
+            "reference": "송장 출력 전으로 확인되어 옵션 변경이 가능합니다. 출고는 2026-08-24 예정이며 변경 접수 도와드리겠습니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-016",
+      "title": "주문 변경 요청 → 송장 출력됨 → 불가 + 대안 안내",
+      "route": "ORDER_PLACE",
+      "pattern": "정책거절",
+      "tests": [
+        "송장 출력 후 변경 불가",
+        "거절 시 대안(수령 후 교환·반품) 제시"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "O-1002 주문 색상을 브라운으로 바꿔주세요."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_order_status"
+            ],
+            "tool_args": {
+              "get_order_status": {
+                "order_id": "O-1002"
+              }
+            },
+            "must": [
+              "7"
+            ],
+            "forbid": [
+              "변경해 드렸습니다"
+            ],
+            "rubric": "invoice_printed=true → 변경 불가. 거절만 하지 말고 수령 후 교환·반품 경로를 안내해야 한다.",
+            "reference": "이미 송장이 출력되어 주문 변경이 어렵습니다. 상품 수령 후 교환으로 접수해 주시면 도와드리겠으며, 수령일 기준 7일 이내 신청 가능합니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-017",
+      "title": "주문제작 상품 구매 의사 → 반품 불가 선제 고지",
+      "route": "ORDER_PLACE",
+      "pattern": "선제고지",
+      "tests": [
+        "주문 시 반품 불가 선제 안내(정책 §2.3)",
+        "제작 기간 고지"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "핸드메이드 트렌치 코트 L 사이즈로 하나 주문할게요."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_detail"
+            ],
+            "tool_args": {
+              "get_product_detail": {
+                "product_id": "P3003"
+              }
+            },
+            "must": [
+              "주문 제작"
+            ],
+            "forbid": [
+              "7일 이내 반품"
+            ],
+            "rubric": "주문제작은 반품 불가이므로 주문 접수 시 반드시 먼저 알려야 한다. 묻지 않았어도 고지 의무가 있다.",
+            "reference": "핸드메이드 트렌치 코트는 주문 제작 상품으로 교환·반품이 불가한 점 먼저 안내드립니다. 제작에 5~7영업일이 소요되며, 확인하셨다면 주문 도와드리겠습니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-018",
+      "title": "브라 사이즈 선택 → 팬티 자동 매칭 안내",
+      "route": "ORDER_PLACE",
+      "pattern": "조건분기",
+      "tests": [
+        "세트 사이즈 매칭 규칙",
+        "개별 사이즈 선택 불가"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "브라·팬티 세트 80A로 살 건데 팬티는 몇 사이즈로 와요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_options",
+              "get_product_detail"
+            ],
+            "tool_args": {
+              "get_product_options": {
+                "product_id": "P1003"
+              },
+              "get_product_detail": {
+                "product_id": "P1003"
+              }
+            },
+            "must": [
+              "95"
+            ],
+            "rubric": "size_matching 에 따라 80A → 팬티 95. 개별 사이즈 선택은 불가.",
+            "reference": "브라 80A 선택 시 팬티는 95 사이즈로 함께 출고됩니다. 브라와 팬티의 사이즈를 개별로 선택하실 수는 없습니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-019",
+      "title": "품절 사이즈 문의 → 재입고 확정일 안내 (C-012 대조군)",
+      "route": "ORDER_PLACE",
+      "pattern": "확답가능",
+      "tests": [
+        "is_confirmed=true 면 예정일 안내 가능",
+        "C-012 미확정 케이스와 대조"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "가죽 자켓 블랙 XL 지금 살 수 있나요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_restock_info"
+            ],
+            "tool_args": {
+              "get_restock_info": {
+                "product_id": "P3001"
+              }
+            },
+            "must": [
+              "9월 1일"
+            ],
+            "forbid": [
+              "확정되지 않았"
+            ],
+            "rubric": "재입고 확정 건이므로 예정일을 안내해도 된다. C-012(미확정)와 반대 처리.",
+            "reference": "블랙 XL 사이즈는 9월 1일 입고 예정으로 확정되어 있습니다. 알림 신청해 두시면 입고 시 연락드리겠습니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-020",
+      "title": "발열내의 세트 개별 구매 → 불가 → 유사 상품 문의",
+      "route": "ORDER_PLACE",
+      "pattern": "상품전환",
+      "tests": [
+        "세트 개별 불가",
+        "대상 전환 시 툴 재호출"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "발열내의 상의만 살 수 있어요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_options"
+            ],
+            "tool_args": {
+              "get_product_options": {
+                "product_id": "P3006"
+              }
+            },
+            "must": [
+              "세트"
+            ],
+            "rubric": "P3006 individual_purchase_allowed=false.",
+            "reference": "발열내의는 상하의 세트 구성으로만 판매되어 상의만 개별 구매하실 수 없습니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "그럼 기본 티셔츠는 한 장만 살 수 있죠?"
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_options",
+              "get_product_detail"
+            ],
+            "tool_args": {
+              "get_product_options": {
+                "product_id": "P3004"
+              },
+              "get_product_detail": {
+                "product_id": "P3004"
+              }
+            },
+            "must": [
+              "12900"
+            ],
+            "forbid": [
+              "구매하실 수 없습니다"
+            ],
+            "rubric": "P3004 는 세트가 아니므로 단품 구매 가능. 앞 턴의 '불가'를 반복하면 실패. 가격은 get_product_options 에 없으므로 get_product_detail 을 함께 호출해야 한다.",
+            "reference": "기본 티셔츠는 단품 상품으로 한 장만 구매하실 수 있습니다. 가격은 12,900원입니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-021",
+      "title": "소재 혼용률 상세페이지 불일치 → 하자 처리 전환",
+      "route": "PRODUCT_INFO",
+      "pattern": "조건분기",
+      "tests": [
+        "상세페이지 오표기는 오배송·하자 처리(정책 §3.4)",
+        "무료 반품 대상"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "슬립 원피스 상세페이지엔 폴리 80%인데 받은 택에는 65%라고 적혀 있어요."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_detail"
+            ],
+            "tool_args": {
+              "get_product_detail": {
+                "product_id": "P3002"
+              }
+            },
+            "must": [
+              "80"
+            ],
+            "forbid": [
+              "고객 부담",
+              "무료 반품 사유가 아"
+            ],
+            "rubric": "등록 정보는 폴리 80/코튼 20. 실물이 다르면 표기 오류 → 오배송·하자로 처리하고 무료 반품 대상임을 안내해야 한다.",
+            "reference": "등록된 소재는 폴리에스터 80%, 코튼 20%입니다. 실물 택 표기가 다르다면 상품 표기 오류로 확인이 필요하며, 이 경우 배송비 부담 없이 반품·교환 도와드리겠습니다. 불편을 드려 죄송합니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-022",
+      "title": "사이즈 문의 → 실측 기준 안내 → 구매 결정",
+      "route": "PRODUCT_INFO",
+      "pattern": "식별자요청",
+      "tests": [
+        "표기 아닌 실측 안내(정책 §3.2)",
+        "치수 근거 제시"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "가죽 자켓 M 사이즈면 저한테 맞을까요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_detail"
+            ],
+            "tool_args": {
+              "get_product_detail": {
+                "product_id": "P3001"
+              }
+            },
+            "must": [
+              "106"
+            ],
+            "rubric": "size_chart M = 어깨 45 가슴 106 총장 67. 실측 치수로 안내한다.",
+            "reference": "가죽 자켓 M 사이즈는 어깨 45cm, 가슴 106cm, 총장 67cm입니다. 평소 착용하시는 치수와 비교해 보시면 도움이 되실 것 같습니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "가슴이 100 정도면 M이 맞겠네요. L은 얼마나 차이나요?"
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [],
+            "must": [
+              "112"
+            ],
+            "rubric": "L = 가슴 112. 앞 턴 툴 결과 재사용 가능.",
+            "reference": "L 사이즈는 가슴 112cm로 M보다 6cm 넓습니다. 넉넉하게 입으시려면 L을 권해 드립니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-023",
+      "title": "세트 구성품 미포함 확인 → 별도 구매 안내",
+      "route": "PRODUCT_INFO",
+      "pattern": "식별자요청",
+      "tests": [
+        "구성품 조회",
+        "미포함 항목 명확화"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "어성초 세트에 아이 크림도 들어있나요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_detail"
+            ],
+            "tool_args": {
+              "get_product_detail": {
+                "product_id": "P5002"
+              }
+            },
+            "must": [
+              "아이 크림"
+            ],
+            "forbid": [
+              "포함되어 있습니다"
+            ],
+            "rubric": "components 는 토너·로션·크림 3종. 아이 크림 미포함.",
+            "reference": "어성초 기초 케어 세트는 토너 200ml, 로션 150ml, 크림 50ml 3종 구성으로 아이 크림은 포함되지 않아 별도 구매가 필요합니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-024",
+      "title": "신축성 소재 오차 → 무료 반품 사유 아님",
+      "route": "PRODUCT_INFO",
+      "pattern": "정책거절",
+      "tests": [
+        "사이즈 표기 차이는 고객 부담(정책 §3.2, §6.4)",
+        "반품비 고정값 안내"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "레깅스 M 샀는데 표기보다 커요. 반품비 안 내도 되죠?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_detail"
+            ],
+            "tool_args": {
+              "get_product_detail": {
+                "product_id": "P3005"
+              }
+            },
+            "must": [
+              "신축성",
+              "5000"
+            ],
+            "forbid": [
+              "저희가 부담"
+            ],
+            "rubric": "신축성 소재 실측 오차는 무료 반품 사유가 아니다. 단순 변심으로 고객 부담. 🔒 고정값이라 반품비는 툴 없이 답해도 된다.",
+            "reference": "레깅스는 신축성 소재로 실측 오차가 발생할 수 있어 표기 차이로 인한 반품은 무료 반품 사유에 해당하지 않습니다. 전체 반품 시 왕복 배송비 5,000원이 고객 부담으로 발생합니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-025",
+      "title": "품질보증서 동봉 여부 → 상품별 차이",
+      "route": "PRODUCT_INFO",
+      "pattern": "상품전환",
+      "tests": [
+        "보증서 동봉은 상품별로 상이",
+        "대상 전환 시 재조회"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "실버 체인 목걸이 품질보증서 같이 오나요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_detail"
+            ],
+            "tool_args": {
+              "get_product_detail": {
+                "product_id": "P2001"
+              }
+            },
+            "must": [
+              "925"
+            ],
+            "rubric": "P2001 has_quality_cert=true. 소재 실버 925.",
+            "reference": "실버 체인 목걸이는 실버 925 소재로 품질보증서가 함께 동봉됩니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "컷팅 라운드 귀걸이도 보증서 오죠?"
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_product_detail"
+            ],
+            "tool_args": {
+              "get_product_detail": {
+                "product_id": "P2003"
+              }
+            },
+            "must": [
+              "황동"
+            ],
+            "forbid": [
+              "동봉됩니다"
+            ],
+            "rubric": "P2003 has_quality_cert=false. 앞 턴 답변을 관성적으로 반복하면 실패.",
+            "reference": "컷팅 라운드 귀걸이는 황동·큐빅 소재로 품질보증서가 동봉되지 않습니다. 상품별로 동봉 여부가 달라 개별 확인이 필요합니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-026",
+      "title": "무료배송 적용 케이스 (기준 충족)",
+      "route": "SHIPPING",
+      "pattern": "단일턴확장",
+      "tests": [
+        "free_shipping_applied=true 처리",
+        "미달 케이스 대조군"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "크로스백 78,000원인데 배송비 있나요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_shipping_policy"
+            ],
+            "tool_args": {
+              "get_shipping_policy": {
+                "product_id": "P6002",
+                "order_amount": 78000
+              }
+            },
+            "must": [
+              "50000"
+            ],
+            "forbid": [
+              "2500원이 발생"
+            ],
+            "rubric": "BAG_GOODS 기준 50,000원 충족 → 무료배송.",
+            "reference": "크로스백은 가방·잡화 카테고리로 무료배송 기준 50,000원을 충족하여 배송비가 발생하지 않습니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-027",
+      "title": "당일배송 문의 → 미제공 지역 확인",
+      "route": "SHIPPING",
+      "pattern": "조건분기",
+      "tests": [
+        "지역별 특수배송 제공 여부",
+        "미제공 시 대안 안내"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "티셔츠 당일배송 되나요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ASK",
+            "tools": [],
+            "forbid": [
+              "5000원",
+              "가능합니다"
+            ],
+            "must_ask": [
+              "배송 지역"
+            ],
+            "rubric": "당일배송 제공 여부는 지역별로 다르므로 배송 지역을 물어야 한다.",
+            "reference": "당일배송은 배송 지역에 따라 제공 여부가 달라 배송지 지역을 알려주시겠어요?"
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "부산이에요."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_shipping_policy"
+            ],
+            "tool_args": {
+              "get_shipping_policy": {
+                "product_id": "P3004",
+                "address_region": "수도권외"
+              }
+            },
+            "must": [
+              "미제공"
+            ],
+            "forbid": [
+              "5000"
+            ],
+            "rubric": "수도권외 → same_day available=false. 일반 배송 소요일로 대안 안내.",
+            "reference": "부산은 당일배송 미제공 지역입니다. 일반 배송으로 3~4영업일이 소요됩니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-028",
+      "title": "제주 지역 추가 배송비 안내",
+      "route": "SHIPPING",
+      "pattern": "조건분기",
+      "tests": [
+        "도서산간 추가 배송비",
+        "기본 배송비와 구분"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "제주도인데 배송비 추가로 붙어요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_shipping_policy"
+            ],
+            "tool_args": {
+              "get_shipping_policy": {
+                "product_id": "P3004",
+                "address_region": "제주도서산간"
+              }
+            },
+            "must": [
+              "3000"
+            ],
+            "rubric": "제주도서산간 extra_fee 3,000원. 기본 배송비 2,500원과 별개.",
+            "reference": "제주 지역은 기본 배송비 외에 추가 배송비 3,000원이 부과됩니다. 당일배송은 제공되지 않습니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-029",
+      "title": "출고 마감 문의 → 주문 시각 확인 → 익영업일 출고",
+      "route": "SHIPPING",
+      "pattern": "식별자요청",
+      "tests": [
+        "출고 마감 11시 🔒 고정값",
+        "주말 제외"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "오늘 주문하면 언제 나가요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ASK",
+            "tools": [],
+            "must": [
+              "11"
+            ],
+            "must_ask": [
+              "주문번호"
+            ],
+            "rubric": "이미 주문한 건인지 확인이 필요하고, 마감 시각은 🔒 고정값이라 함께 안내 가능.",
+            "reference": "출고 마감은 오전 11시로, 11시 이전 주문은 당일 출고됩니다. 이미 주문하신 건이라면 주문번호를 알려주시겠어요?"
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "O-1001로 어제 낮에 주문했어요."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_order_status"
+            ],
+            "tool_args": {
+              "get_order_status": {
+                "order_id": "O-1001"
+              }
+            },
+            "must": [
+              "2026-08-24"
+            ],
+            "forbid": [
+              "당일 출고"
+            ],
+            "rubric": "12:30 주문으로 마감 이후 → 익영업일 출고. 주말 제외로 8/24(월) 예정.",
+            "reference": "오후 12시 30분 주문으로 마감 이후에 접수되어 익영업일 출고 대상입니다. 주말을 제외하여 2026-08-24 출고 예정입니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-030",
+      "title": "오배송 접수 → 판매자 부담 원칙 + 검품 후 확정",
+      "route": "RETURN_REFUND",
+      "pattern": "미확정상태",
+      "tests": [
+        "오배송 무료 반품",
+        "접수 단계에서 '예정'으로 안내"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "O-1002로 받은 자켓이 주문한 색이 아니에요. 반품비 제가 내야 해요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_return_status"
+            ],
+            "tool_args": {
+              "get_return_status": {
+                "order_id": "O-1002"
+              }
+            },
+            "must": [
+              "검품"
+            ],
+            "forbid": [
+              "고객님 부담",
+              "5000원"
+            ],
+            "rubric": "R-2005 오배송 접수. shipping_fee_bearer='모두몰(예정)', fault_confirmed=false → 완료로 단정하지 말고 '예정'으로 안내.",
+            "reference": "오배송으로 접수되어 배송비는 저희가 부담할 예정이며 반품비는 발생하지 않습니다. 정확한 귀책은 상품 입고 후 검품에서 확정되며, 불편을 드려 죄송합니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-031",
+      "title": "반품 수거 일정 문의 → 기사 방문 예정일 안내",
+      "route": "RETURN_REFUND",
+      "pattern": "식별자요청",
+      "tests": [
+        "수거 단계 조회",
+        "방문 예정 기간 안내"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "반품 신청했는데 언제 수거해 가나요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ASK",
+            "tools": [],
+            "forbid": [
+              "오늘 방문",
+              "내일 방문"
+            ],
+            "must_ask": [
+              "주문번호"
+            ],
+            "rubric": "수거 일정은 반품 건별로 달라 주문번호가 필요하다.",
+            "reference": "주문번호를 알려주시면 수거 일정을 확인해 드리겠습니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "O-1004요."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [
+              "get_return_status"
+            ],
+            "tool_args": {
+              "get_return_status": {
+                "order_id": "O-1004"
+              }
+            },
+            "must": [
+              "2026-08-24"
+            ],
+            "rubric": "R-2004 stage=수거대기, courier_visit_expected 2026-08-21~08-24. 접수 후 1~2영업일.",
+            "reference": "현재 수거 대기 상태로, 접수 후 1~2영업일 내 기사님이 방문하실 예정입니다. 예정 기간은 2026-08-21에서 2026-08-24 사이입니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-032",
+      "title": "전체 반품 → 부분 반품으로 변경 시 배송비 차이",
+      "route": "RETURN_REFUND",
+      "pattern": "후속계산",
+      "tests": [
+        "전체 5,000 / 부분 2,500 🔒 고정값",
+        "수량 무관 원칙"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "티셔츠 3장 중에 전부 반품하면 배송비 얼마예요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [],
+            "must": [
+              "5000"
+            ],
+            "rubric": "전체 반품 왕복 5,000원. 🔒 고정값이므로 툴 없이 답변 가능.",
+            "reference": "전체 반품 시 왕복 배송비 5,000원이 발생하며, 주문 수량과 무관하게 동일하게 적용됩니다."
+          }
+        },
+        {
+          "turn": 3,
+          "role": "customer",
+          "text": "그럼 한 장만 반품하면요?"
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "expect": {
+            "action": "ANSWER",
+            "tools": [],
+            "must": [
+              "2500"
+            ],
+            "forbid": [
+              "5000"
+            ],
+            "rubric": "부분 반품 2,500원. 수량이 아니라 전체/부분 여부로 결정된다는 점이 핵심.",
+            "reference": "한 장만 반품하시면 부분 반품으로 2,500원이 적용됩니다. 반품 수량이 아니라 전체 반품인지 부분 반품인지에 따라 결정됩니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-033",
+      "title": "처리 기간 초과 → 에스컬레이션",
+      "route": "RETURN_REFUND",
+      "pattern": "에스컬레이션",
+      "tests": [
+        "over_sla 감지",
+        "SLA 초과 시 이관(정책 §7.2)"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "O-1007 반품 접수한 지 한참 됐는데 아직도 환불이 안 됐어요.",
+          "sentiment": "negative"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "ESCALATE",
+            "tools": [
+              "get_return_status",
+              "escalate_to_agent"
+            ],
+            "tool_args": {
+              "get_return_status": {
+                "order_id": "O-1007"
+              },
+              "escalate_to_agent": {
+                "reason": "처리기간초과",
+                "summary": "O-1007 반품 접수 후 8영업일 경과로 SLA 초과. 승인 완료 상태이나 환불 미완료. 고객 불만 있음.",
+                "order_id": "O-1007",
+                "sentiment": "negative"
+              }
+            },
+            "must": [
+              "8"
+            ],
+            "forbid": [
+              "조금만 더 기다려"
+            ],
+            "rubric": "elapsed_business_days=8 로 전체 SLA 3~7영업일을 초과(over_sla=true). 일반 기간 안내로 넘기지 말고 이관해야 한다.",
+            "reference": "접수 후 8영업일이 경과하여 통상 처리 기간을 넘긴 상태입니다. 정확한 확인과 처리를 위해 상담원에게 연결해 드리겠습니다."
+          }
+        }
+      ]
+    },
+    {
+      "conv_id": "C-034",
+      "title": "제조사 A/S 문의 → 범위 밖 안내",
+      "route": "RETURN_REFUND",
+      "pattern": "범위밖",
+      "tests": [
+        "제조사 A/S 는 응대 범위 밖(정책 §7.1)",
+        "추측 답변 금지"
+      ],
+      "turns": [
+        {
+          "turn": 1,
+          "role": "customer",
+          "text": "작년에 산 시계가 멈췄는데 수리 맡기려면 어떻게 해요?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "expect": {
+            "action": "OUT_OF_SCOPE",
+            "tools": [],
+            "must": [
+              "제조사"
+            ],
+            "forbid": [
+              "수리비는",
+              "무상 수리"
+            ],
+            "rubric": "제조사 A/S 는 모두몰 응대 범위 밖. 수리 절차·비용을 추측해 안내하면 실패.",
+            "reference": "제조사 A/S 관련 사항은 해당 제조사 고객센터를 통해 문의해 주셔야 확인이 가능합니다. 도움드리지 못해 죄송합니다."
+          }
+        }
+      ]
+    }
+  ]
+}
