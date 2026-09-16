@@ -1,4 +1,5 @@
 import pytest
+from server.callcontext import current_caller
 from server.domain import load_domain
 from server.tools import make_tools, find_identifiers
 
@@ -26,13 +27,48 @@ def test_find_customer_by_phone_and_order(tools, modumall_dir):
     from server.repo import Repo
     from server.domain import load_domain
     repo = Repo(load_domain(modumall_dir).db_path)
+    cust_1001 = repo.customer(repo.order("O-1001")["customer_id"])
+    phone = cust_1001["phone"]
+    token = current_caller.set({"customer_id": cust_1001["customer_id"], "phone": phone})
+    try:
+        c = tools["find_customer"](phone=phone.replace("-", ""))
+        assert c["name"]
+        # 합성 주문이 늘면서 O-1001 이 "최근 3건" 창에서 밀려날 수 있어, 주문 존재가 아니라
+        # 조회된 고객이 O-1001 소유자와 같은지로 확인한다.
+        assert c["customer_id"] == cust_1001["customer_id"]
+        assert c["recent_orders"]
+        assert "error" in tools["find_customer"](phone="010-0000-0000")
+        assert "error" in tools["find_customer"]()
+    finally:
+        current_caller.reset(token)
+
+
+def test_find_customer_requires_caller_context(tools, modumall_dir):
+    from server.repo import Repo
+    from server.domain import load_domain
+    repo = Repo(load_domain(modumall_dir).db_path)
     phone = repo.customer(repo.order("O-1001")["customer_id"])["phone"]
-    c = tools["find_customer"](phone=phone.replace("-", ""))
-    assert c["name"]
-    assert any(o["order_id"] == "O-1001" for o in c["recent_orders"])
-    assert tools["find_customer"](order_id="O-1006")["customer_id"] == repo.order("O-1006")["customer_id"]
-    assert "error" in tools["find_customer"](phone="010-0000-0000")
-    assert "error" in tools["find_customer"]()
+    # 발신자 컨텍스트가 없으면 실제로 존재하는 전화번호라도 조회를 거절한다.
+    assert current_caller.get() is None
+    assert "error" in tools["find_customer"](phone=phone)
+
+
+def test_find_customer_blocks_other_customers_order(tools, modumall_dir):
+    from server.repo import Repo
+    from server.domain import load_domain
+    repo = Repo(load_domain(modumall_dir).db_path)
+    cust_1001 = repo.customer(repo.order("O-1001")["customer_id"])
+    other_order = repo.order("O-1006")
+    assert other_order["customer_id"] != cust_1001["customer_id"]
+    token = current_caller.set({"customer_id": cust_1001["customer_id"], "phone": cust_1001["phone"]})
+    try:
+        # 본인 전화번호 조회는 성공
+        assert tools["find_customer"](phone=cust_1001["phone"])["customer_id"] == cust_1001["customer_id"]
+        # 다른 고객의 주문번호로 조회하면 본인 확인 오류
+        result = tools["find_customer"](order_id="O-1006")
+        assert "error" in result
+    finally:
+        current_caller.reset(token)
 
 
 def test_get_order_status_includes_tracking_events(tools):

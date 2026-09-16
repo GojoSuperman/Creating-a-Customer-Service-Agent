@@ -104,6 +104,44 @@ def test_made_to_order_never_in_returns(db):
     assert bad == []
 
 
+def test_no_duplicate_product_names(db):
+    rows = db.execute("select name, count(*) c from products group by name having c > 1").fetchall()
+    assert rows == []
+
+
+def test_paid_orders_are_recent(db):
+    # F4: 결제완료는 방금 접수된 주문만 (2일 이내), 배송중은 6일 이내. 정식(canonical) 주문은
+    # 값을 바꾸지 않는다는 규칙이 있으므로 합성 주문(O-1011 초과)만 검사한다.
+    bad_paid = db.execute("""
+        select order_id from orders
+        where status = '결제완료' and order_id > 'O-1011'
+          and julianday('2026-09-16') - julianday(substr(ordered_at, 1, 10)) > 2
+    """).fetchall()
+    assert bad_paid == []
+    bad_shipping = db.execute("""
+        select order_id from orders
+        where status = '배송중' and order_id > 'O-1011'
+          and julianday('2026-09-16') - julianday(substr(ordered_at, 1, 10)) > 6
+    """).fetchall()
+    assert bad_shipping == []
+
+
+def test_no_future_return_dates(db):
+    bad = db.execute("select return_id, date from return_stage_history where date > '2026-09-16'").fetchall()
+    assert bad == []
+    bad2 = db.execute("select return_id from returns where expected_completion > '2026-09-23'").fetchall()
+    assert bad2 == []
+
+
+def test_share_of_recent_orders(db):
+    total = count(db, "orders")
+    recent = db.execute("""
+        select count(*) from orders
+        where julianday('2026-09-16') - julianday(substr(ordered_at, 1, 10)) <= 14
+    """).fetchone()[0]
+    assert recent / total >= 0.25, f"recent share too low: {recent}/{total}"
+
+
 def test_status_distribution(db):
     rows = db.execute("select order_id from orders where status = '제작중'").fetchall()
     assert len(rows) >= 8

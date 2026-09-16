@@ -124,6 +124,17 @@ def test_infer_action_tolerates_error_string():
     assert action == "ANSWER"
 
 
+def test_infer_action_ignores_closing_courtesy():
+    # 답변 끝의 "추가로 궁금한 점 있으시면 말씀해 주세요" 는 질문형 어미를 갖고 있어도
+    # 상담 종결 인사일 뿐, 고객에게 되묻는 ASK 로 오판하면 안 된다.
+    text = "슬립 원피스 소재는 폴리 80%입니다. 추가로 궁금한 점 있으시면 말씀해 주세요."
+    assert infer_action(text, {}) == "ANSWER"
+
+
+def test_infer_action_still_detects_real_ask():
+    assert infer_action("어떤 상품인지 말씀해 주시겠어요?", {}) == "ASK"
+
+
 def test_infer_action_sees_repeated_keys():
     # 같은 도구가 한 턴에 여러 번 불리면 results 에 get_order_status#2, #3 처럼 쌓인다.
     results = {"get_order_status": {"error": "x"}, "get_order_status#2": {"is_external_channel": True}}
@@ -255,6 +266,20 @@ def test_start_call_unknown_phone_is_guest(domain, settings):
     assert ans.customers[0] is None
 
 
+def test_sample_customers_have_recent_non_delivered_order(domain, settings):
+    import datetime as dt
+    from server.repo import Repo
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=FakeAnswerer([]))
+    repo = Repo(domain.db_path)
+    samples = p.sample_customers(5)
+    assert samples
+    cutoff = (dt.date(2026, 9, 16) - dt.timedelta(days=14)).isoformat()
+    for s in samples:
+        c = repo.customer_by_phone(s["phone"])
+        orders = repo._all("select ordered_at, status from orders where customer_id=?", c["customer_id"])
+        assert any(o["ordered_at"] >= cutoff and o["status"] != "배송완료" for o in orders), s
+
+
 def test_customer_numbers_are_allowed_by_guardrail(domain, settings):
     # 통화 고객 블록에 있는 주문 금액을 답변에 써도 출처 불명이 아니다
     ans = FakeAnswerer([("주문 금액은 25,800원입니다.", {"get_order_status": {"order_id": "O-1001"}}, [])])
@@ -263,6 +288,35 @@ def test_customer_numbers_are_allowed_by_guardrail(domain, settings):
     p.customers[cid] = {"customer_id": "C-0001", "name": "홍길동", "recent_orders": [{"order_id": "O-1001", "order_amount": 25800}]}
     r = p.turn(cid, "그 주문 얼마였죠")
     assert r.action == "ANSWER" and r.guardrail["ok"]
+
+
+def test_state_customer_context_isolated_per_call(domain, settings):
+    # F1: 통화별 고객 컨텍스트가 공유 속성(_current_call)이 아니라 그래프 state 를 타고
+    # 흐르는지 확인한다. 두 통화를 인터리빙(A, B, A)해도 각 턴이 자기 통화의 고객만 받아야 한다.
+    ans = FakeAnswerer([("A1", {}, []), ("B1", {}, []), ("A2", {}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    a, _, cust_a = p.start_call()
+    b, _, cust_b = p.start_call()
+    p.customers[a] = {"customer_id": "C-0001", "name": "고객A", "recent_orders": []}
+    p.customers[b] = {"customer_id": "C-0002", "name": "고객B", "recent_orders": []}
+    p.turn(a, "질문1")
+    p.turn(b, "질문1")
+    p.turn(a, "질문2")
+    assert ans.customers[0]["customer_id"] == "C-0001"
+    assert ans.customers[1]["customer_id"] == "C-0002"
+    assert ans.customers[2]["customer_id"] == "C-0001"
+
+
+def test_current_caller_contextvar_reset_after_turn(domain, settings):
+    # F2: turn() 이 current_caller 를 설정하고, 정상 종료 후에는 반드시 되돌려야 한다.
+    from server.callcontext import current_caller
+    ans = FakeAnswerer([("네.", {}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.customers[cid] = {"customer_id": "C-0001", "name": "고객A", "recent_orders": []}
+    assert current_caller.get() is None
+    p.turn(cid, "질문")
+    assert current_caller.get() is None
 
 
 def test_end_call_writes_log(domain, settings):

@@ -16,6 +16,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from server import guardrail
+from server.callcontext import current_caller
 from server.config import Settings
 from server.domain import Domain
 from server.repo import Repo
@@ -25,6 +26,9 @@ from server.repo import Repo
 TODAY = datetime.date(2026, 9, 16)
 
 ASK_PATTERN = r"\?|주시겠|알려주|말씀해"
+# 답변 끝의 상담 종결 인사("더 궁금한 점 있으시면 말씀해 주세요")는 질문형 어미를 갖고 있어도
+# ASK 로 오판되면 안 된다. infer_action 이 판정 전에 이 부분을 잘라낸다.
+CLOSING_PATTERN = r"[^.!?\n]*(?:(?:더|추가로|또)\s*(?:궁금|문의|필요)|언제든|편하게\s*말씀)[^.!?\n]*[.!?]?\s*$"
 
 
 def infer_action(text: str, results: dict) -> str:
@@ -42,8 +46,10 @@ def infer_action(text: str, results: dict) -> str:
             continue
         if isinstance(value, dict) and value.get("is_external_channel"):
             return "OUT_OF_SCOPE"
-    if not results and re.search(ASK_PATTERN, text):
-        return "ASK"
+    if not results:
+        stripped = re.sub(CLOSING_PATTERN, "", text)
+        if re.search(ASK_PATTERN, stripped):
+            return "ASK"
     return "ANSWER"
 
 
@@ -85,6 +91,8 @@ class AgentState(TypedDict, total=False):
     guardrail: Optional[dict]
     attempts: int
     clarify_count: int
+    customer: Optional[dict]
+    call_id: str
 
 
 @dataclass
@@ -119,7 +127,6 @@ class Pipeline:
         self.calls: set[str] = set()
         self.customers: dict[str, Optional[dict]] = {}
         self.turn_logs: dict[str, list] = {}
-        self._current_call: Optional[str] = None   # 단일 스레드 가정. 동시 통화는 범위 밖
         self.graph = self._build()
 
     # ── 노드 ──────────────────────────────────────────────
@@ -145,7 +152,7 @@ class Pipeline:
         feedback = None
         if guardrail_state and not guardrail_state.get("ok"):
             feedback = "; ".join(f"{v['type']}: {v['detail']}" for v in guardrail_state["violations"])
-        customer = self.customers.get(self._current_call)
+        customer = state.get("customer")
         text, results, calls = self.answerer.answer(state["question"], state["route"],
                                                     history=state.get("history") or [],
                                                     feedback=feedback, customer=customer)
@@ -163,7 +170,7 @@ class Pipeline:
         return {"action": "HANDLE", "tools": calls, "results": results, "answer": text, "attempts": attempts}
 
     def _node_guard(self, state: AgentState) -> AgentState:
-        customer = self.customers.get(self._current_call)
+        customer = state.get("customer")
         results = dict(state["results"])
         if customer:
             results["_customer"] = customer
@@ -171,7 +178,7 @@ class Pipeline:
         if not g.ok:
             for v in g.violations:
                 guardrail.log_violation(self.settings.logs_dir, {
-                    "call_id": self._current_call, "route": state["route"], "type": v["type"],
+                    "call_id": state.get("call_id"), "route": state["route"], "type": v["type"],
                     "detail": v["detail"], "answer": state["answer"]})
         result = {"guardrail": g.to_dict(), "action": "ANSWER" if g.ok else "RETRY"}
         if g.ok:
@@ -240,7 +247,7 @@ class Pipeline:
         if phone:
             c = self.repo.customer_by_phone(phone)
             if c:
-                customer = {"customer_id": c["customer_id"], "name": c["name"],
+                customer = {"customer_id": c["customer_id"], "name": c["name"], "phone": c["phone"],
                             "recent_orders": self.repo.recent_orders(c["customer_id"], 3)}
         self.customers[cid] = customer
         self.repo.log_call(cid, customer["customer_id"] if customer else None,
@@ -248,9 +255,24 @@ class Pipeline:
         return cid, self._greeting_for(customer), customer
 
     def sample_customers(self, n: int = 5) -> list[dict]:
+        """최근 14일 내 미배송 완료 주문이 있는 고객을 우선 추천한다 (통화 데모가 실제 진행 중인
+        주문을 보여줄 수 있도록). 부족하면 정식 주문 O-1001..O-1005 소유자로 채운다."""
         seen: set[str] = set()
         out: list[dict] = []
+        cutoff = (TODAY - datetime.timedelta(days=14)).isoformat()
+        for row in self.repo.recently_active_customers(TODAY.isoformat(), cutoff, n):
+            cid = row["customer_id"]
+            if cid in seen:
+                continue
+            seen.add(cid)
+            c = self.repo.customer(cid)
+            if c:
+                out.append({"name": c["name"], "phone": c["phone"]})
+            if len(out) >= n:
+                return out
         for i in range(1, n + 1):
+            if len(out) >= n:
+                break
             o = self.repo.order(f"O-{1000 + i}")
             cid = o.get("customer_id") if o else None
             if not cid or cid in seen:
@@ -271,8 +293,15 @@ class Pipeline:
         t0 = time.perf_counter()
         text = normalize_stt(text)
         cfg = {"configurable": {"thread_id": call_id}}
-        self._current_call = call_id
-        out = self.graph.invoke({"question": text}, cfg)
+        customer = self.customers.get(call_id)
+        caller = None
+        if customer:
+            caller = {"customer_id": customer["customer_id"], "phone": customer.get("phone")}
+        token = current_caller.set(caller)
+        try:
+            out = self.graph.invoke({"question": text, "customer": customer, "call_id": call_id}, cfg)
+        finally:
+            current_caller.reset(token)
         action = out["action"]
         end = action in ("ESCALATE", "OUT_OF_SCOPE")
         g = out.get("guardrail")

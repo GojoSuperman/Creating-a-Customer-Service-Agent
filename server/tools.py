@@ -10,6 +10,7 @@ import difflib
 import re
 from typing import Callable, Optional
 
+from server.callcontext import current_caller
 from server.domain import Domain
 
 CAPITAL = ("서울", "경기", "인천", "수도권")
@@ -317,8 +318,9 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
                 "message": domain.escalate_message}
 
     def find_customer(phone: Optional[str] = None, order_id: Optional[str] = None) -> dict:
-        """전화번호 또는 주문번호로 고객과 최근 주문 3건을 찾는다. 통화 고객이 '그 주문'처럼 말할 때
-        주문번호를 알아내는 용도다."""
+        """통화 고객(발신번호로 식별된 본인)의 주문번호를 찾는 용도다. 고객이 '그 주문'처럼 말할 때
+        본인의 최근 주문 목록을 다시 조회하기 위해 부른다. 다른 사람의 전화번호·주문번호로는
+        조회할 수 없다."""
         c = None
         if phone:
             c = repo.customer_by_phone(phone)
@@ -327,6 +329,11 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
             c = repo.customer(o["customer_id"]) if o and o.get("customer_id") else None
         if not c:
             return {"error": "고객을 찾을 수 없습니다", "phone": phone, "order_id": order_id}
+        caller = current_caller.get()
+        if caller is None:
+            return {"error": "발신번호로 확인된 고객만 조회할 수 있습니다. 주문번호를 말씀해 주세요."}
+        if caller.get("customer_id") != c["customer_id"]:
+            return {"error": "본인 확인이 필요한 요청입니다. 상담원에게 연결해 드리겠습니다."}
         return clean({"customer_id": c["customer_id"], "name": c["name"], "address_region": c["address_region"],
                       "recent_orders": repo.recent_orders(c["customer_id"], limit=3)})
 

@@ -82,6 +82,17 @@ class Repo:
             out.append(o)
         return out
 
+    def recently_active_customers(self, today_iso: str, cutoff_iso: str, limit: int = 5):
+        """최근 14일 내 배송완료가 아닌 주문이 있는 고객을 최신 주문 순으로 distinct 하게 돌려준다."""
+        rows = self._all("""
+            select customer_id, max(ordered_at) as last_ordered_at
+            from orders
+            where ordered_at >= ? and ordered_at <= ? and status != '배송완료'
+            group by customer_id
+            order by last_ordered_at desc
+            limit ?""", cutoff_iso, today_iso, limit)
+        return rows
+
     def log_call(self, call_id, customer_id, started_at):
         with self._lock:
             self.con.execute("insert or replace into call_logs (call_id,customer_id,started_at) values (?,?,?)", (call_id, customer_id, started_at))

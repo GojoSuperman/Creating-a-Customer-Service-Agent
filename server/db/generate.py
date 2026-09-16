@@ -164,12 +164,16 @@ class Gen:
         prefix = {"UNDERWEAR": 1, "ACCESSORY": 2, "APPAREL": 3, "SHOES": 4, "COSMETICS": 5, "BAG_GOODS": 6}
         existing = {k: max((int(pid[2:]) for pid in self.products if int(pid[1]) == prefix[k]), default=0) for k in prefix}
         cats = list(NAMES)
+        names = {p["name"] for p in self.products.values()}
         while len(self.products) < total:
             cat = cats[len(self.products) % len(cats)]
             base, mods = NAMES[cat]
             name = f"{self.rnd.choice(mods)} {self.rnd.choice(base)}"
-            if any(p["name"] == name for p in self.products.values()):
-                name += f" {self.rnd.choice(['II', '라인', '에디션', '컬렉션'])}"
+            suffix_i = 2
+            while name in names:
+                name = f"{self.rnd.choice(mods)} {self.rnd.choice(base)} {suffix_i}"
+                suffix_i += 1
+            names.add(name)
             existing[cat] += 1
             pid = f"P{prefix[cat]}{existing[cat]:03d}"
             lo, hi = PRICE_RANGE[cat]
@@ -194,7 +198,7 @@ class Gen:
         while len(self.customers) < total:
             self.new_customer()
 
-    def synth_orders(self, total=450):
+    def synth_orders(self, total=480):
         n = 1011
         pids = [p for p in self.products.values() if not p.get("soldout")]
         returns_pending = []
@@ -202,7 +206,7 @@ class Gen:
             n += 1
             oid = f"O-{n}"
             cust = self.rnd.choice(self.customers)
-            d = TODAY - timedelta(days=self.rnd.randint(0, 89))
+            d = TODAY - timedelta(days=int(self.rnd.triangular(0, 89, 0)))
             ordered = dt(d, self.rnd.randint(8, 22), self.rnd.randint(0, 59))
             items = []
             for p in self.rnd.sample(pids, self.rnd.randint(1, 3)):
@@ -231,10 +235,10 @@ class Gen:
             if is_mto and age < mto_days:
                 status, detail, invoice = "제작중", "주문 제작 진행", False
                 exp_ship = (d + timedelta(days=mto_days)).isoformat()
-            elif age <= 1 or r < 0.10:
+            elif age <= 1:
                 status, detail, invoice = "결제완료", "출고 대기", False
-            elif age <= 4 or r < 0.25:
-                status, detail = "배송중", "간선 상차" if self.rnd.random() < 0.7 else "배송 지연"
+            elif age <= 4:
+                status, detail = "배송중", "배송 지연" if self.rnd.random() < 0.3 else "간선 상차"
                 shipped = dt(date.fromisoformat(exp_ship), 14)
                 tracking = f"{self.rnd.randint(10**11, 10**12 - 1)}"
             else:
@@ -260,9 +264,10 @@ class Gen:
             n += 1
             rid = f"R-{n}"
             req = date.fromisoformat(delivered[:10]) + timedelta(days=self.rnd.randint(1, 6))
+            req = min(req, TODAY)
             stages = ["접수", "수거대기", "수거완료", "입고완료", "검품중", "승인", "환불완료"]
             upto = self.rnd.randint(1, 6)
-            hist = [{"stage": s, "date": (req + timedelta(days=i)).isoformat()} for i, s in enumerate(stages[:upto + 1])]
+            hist = [{"stage": s, "date": min(req + timedelta(days=i), TODAY).isoformat()} for i, s in enumerate(stages[:upto + 1])]
             stage = hist[-1]["stage"]
             inspected = stage in ("승인", "환불완료")
             fault = self.rnd.choice(["판매자", "고객"]) if inspected else None
@@ -273,7 +278,7 @@ class Gen:
                  "fault_party": fault, "shipping_fee_bearer": (("판매자" if fault == "판매자" else "고객") if inspected else None),
                  "return_fee": (0 if fault == "판매자" else 5000) if inspected else None,
                  "refund_amount": (amount if fault == "판매자" else amount - 5000) if inspected else None,
-                 "expected_completion": (req + timedelta(days=7)).isoformat(), "stage_history": hist,
+                 "expected_completion": min(req + timedelta(days=7), TODAY + timedelta(days=7)).isoformat(), "stage_history": hist,
                  "note": None if inspected else "검품 미완료로 귀책 미확정"}
             self.insert_return(r)
             self.con.execute("update orders set return_id=? where order_id=?", (rid, oid))

@@ -134,6 +134,18 @@ def test_date_components_not_used_for_arithmetic(domain):
     assert r2.ok, f"Expected ok=True, got violations: {r2.violations}"
 
 
+def test_customer_block_numbers_not_used_for_arithmetic(domain):
+    # 통화 고객 블록의 숫자(25,800)는 그대로 허용되지만, get_shipping_policy 의 100,000 과
+    # 산술로 엮여 40,000 같은 근거 없는 값을 만들어내는 재료로는 쓰이면 안 된다.
+    res = {"get_shipping_policy": {"free_shipping_threshold": 100000},
+           "_customer": {"customer_id": "C-0001", "name": "홍길동",
+                         "recent_orders": [{"order_id": "O-1001", "order_amount": 25800}]}}
+    r = check("무료배송 기준 40,000원입니다.", res, domain)
+    assert not r.ok, "40,000원은 어느 조회 결과에서도 유도되지 않아야 한다"
+    r2 = check("주문 금액 25,800원입니다.", res, domain)
+    assert r2.ok, f"통화 고객 블록의 숫자는 그대로 허용돼야 한다: {r2.violations}"
+
+
 def test_normalize_korean_myriad_excludes_unrelated_numbers():
     from server.guardrail import normalize_korean_myriad
     

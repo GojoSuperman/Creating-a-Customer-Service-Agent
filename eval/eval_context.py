@@ -34,17 +34,23 @@ def main():
     domain = load_domain(s.domains_root / (a.domain or s.domain))
     inq = pd.read_csv(domain.path / "eval" / "customer_inquiries.csv", encoding="utf-8-sig")
     rnd = random.Random(7)
-    qs = rnd.sample(inq["question"].tolist(), a.n)
+    pool = inq["question"].tolist()
+    n = min(a.n, len(pool))
+    if n < a.n:
+        print(f"[eval_context] --n {a.n} 이 문의 풀 크기({len(pool)})보다 커서 {n}으로 줄입니다.")
+    qs = rnd.sample(pool, n)
     repo = Repo(domain.db_path)
     phones = [repo.customer(repo.order(f"O-10{i:02d}")["customer_id"])["phone"] for i in range(1, 9)]
     pipeline = Pipeline(domain, s)
-    a_df = run(pipeline, qs, [None] * a.n)
+    a_df = run(pipeline, qs, [None] * n)
     b_df = run(pipeline, qs, [rnd.choice(phones) for _ in qs])
     for label, df in (("A. 비회원", a_df), ("B. 식별된 고객", b_df)):
         print(f"\n{label}  n={len(df)}")
         print(df["action"].value_counts().to_string())
         answered = df[df["action"] == "ANSWER"]
-        print(f"자동화율(답변 도달) {len(answered) / len(df):.3f}  조회율(답변 중 도구 호출) {answered['tools'].mean() if len(answered) else 0:.3f}")
+        asked = df[df["action"] == "ASK"]
+        print(f"자동화율(답변 도달) {len(answered) / len(df):.3f}  조회율(답변 중 도구 호출) {answered['tools'].mean() if len(answered) else 0:.3f}"
+              f"  되묻기율(ASK) {len(asked) / len(df):.3f}")
 
 
 if __name__ == "__main__":

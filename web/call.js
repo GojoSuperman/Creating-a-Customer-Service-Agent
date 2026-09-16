@@ -3,6 +3,7 @@ import { createVoice, preferredVoice, rememberVoice } from "./voice.js";
 import { createPanel } from "./panel.js";
 
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const state = { phase: "IDLE", callId: null, startedAt: null, turns: 0, textOnly: false, timer: null, gen: 0, busy: false };
 const voice = createVoice({ onInterim: (t) => { $("interim").textContent = t; } });
 const panel = createPanel($("panel"));
@@ -159,7 +160,7 @@ $("voice-select").onchange = (e) => { const v = voice.listVoices()[e.target.valu
   const d = await fetch("/api/domain").then(r => r.json());
   $("shop-name").textContent = d.name;
   $("sample-select").innerHTML = '<option value="">샘플 고객 선택…</option>' +
-    (d.sample_customers || []).map(c => `<option value="${c.phone}">${c.name} · ${c.phone}</option>`).join("");
+    (d.sample_customers || []).map(c => `<option value="${esc(c.phone)}">${esc(c.name)} · ${esc(c.phone)}</option>`).join("");
   $("sample-select").onchange = (e) => { if (e.target.value) $("phone-input").value = e.target.value; };
   // 기본은 무료인 브라우저 음성. 서버 TTS 가 설정된 경우에만 OpenAI 를 고를 수 있다
   if (!d.tts_available) $("engine-select").querySelector('option[value="server"]').disabled = true;

@@ -79,6 +79,7 @@ def allowed_numbers(tool_results: dict, domain: Domain) -> tuple[set[int], set[i
             allowed.update(x for x in v if isinstance(x, int))
     tool_nums: set[int] = set()
     date_components: set[int] = set()
+    cust_nums = numbers_in((tool_results or {}).get("_customer", {}))
     for r in (tool_results or {}).values():
         tool_nums |= numbers_in(r)
         # Extract ISO date tokens and add their components to allowed set,
@@ -92,8 +93,10 @@ def allowed_numbers(tool_results: dict, domain: Domain) -> tuple[set[int], set[i
                     date_components.add(int(p))
     allowed |= tool_nums
     allowed |= date_components
-    # Build base for arithmetic, but exclude date components
-    base = sorted(allowed - date_components)
+    allowed |= cust_nums
+    # Build base for arithmetic, but exclude date components and customer-block numbers
+    # (통화 고객 블록의 숫자는 산술 유도의 재료로 쓰이면 근거 없는 값을 만들어낼 수 있다)
+    base = sorted(allowed - date_components - cust_nums)
     for a in base:
         for b in base:
             if a > b:
