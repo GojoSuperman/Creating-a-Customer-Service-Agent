@@ -9,7 +9,7 @@
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env            # OPENAI_API_KEY 채우기
-.venv/bin/python -m server      # http://127.0.0.1:8000  (크롬 권장)
+.venv/bin/python -m server      # http://127.0.0.1:8000  (크롬 권장, 포트 변경은 PORT=8010)
 ```
 
 `.env`에 실제 `OPENAI_API_KEY`를 입력해야 `python -m server` 실행과 LLM 평가 스크립트가 작동합니다.
