@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from eval.scoring import score_turn, infer_action, load_first_turns, self_check
+from eval.scoring import score_turn, infer_action, load_first_turns, self_check, load_regression_cases, score_regression
 from server.domain import ROUTES
 
 
@@ -53,7 +53,7 @@ def test_first_turn_uses_turn_level_route(modumall_dir):
 
 def test_aggregate_runs_thresholds():
     from eval.scoring import aggregate_runs
-    
+
     assert aggregate_runs([True]) == "PASS"
     assert aggregate_runs([False]) == "FAIL"
     assert aggregate_runs([True, True, False]) == "PASS"     # 2/3 >= ceil(3*0.67)=3? -> 아래 참조
@@ -61,3 +61,19 @@ def test_aggregate_runs_thresholds():
     assert aggregate_runs([False, False, False]) == "FAIL"
     assert aggregate_runs([True, True, True, False, False]) == "FLAP"   # 3/5 < ceil(5*0.67)=4
     assert aggregate_runs([True, True, True, True, False]) == "PASS"
+
+
+def test_score_regression():
+    exp = {"action": ["ASK", "ESCALATE"], "forbid": ["40000", "40,000"]}
+    assert score_regression(exp, "어떤 상품인지 말씀해 주시겠어요?", "ASK") == (True, [])
+    ok, fails = score_regression(exp, "무료배송 기준은 40,000원입니다.", "ANSWER")
+    assert not ok and any(f.startswith("action") for f in fails) and any("forbid" in f for f in fails)
+
+
+def test_regression_cases_load(modumall_dir):
+    cases = load_regression_cases(modumall_dir / "eval" / "regression_cases.json")
+    assert len(cases) >= 6
+    assert {c["category"] for c in cases} >= {"injection", "unknown_id"}
+    for c in cases:
+        assert isinstance(c["expect"]["action"], list) and c["expect"]["action"]
+        assert "forbid" in c["expect"]

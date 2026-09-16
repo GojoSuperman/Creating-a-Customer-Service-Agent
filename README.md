@@ -39,16 +39,18 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 ```bash
 .venv/bin/python -m eval.eval_router --rule      # 규칙 기준선 (키 불필요)
 .venv/bin/python -m eval.eval_router             # LLM 라우터 120건
-.venv/bin/python -m eval.eval_answer             # 정답셋 첫 턴 34건 중 자동 판정 가능한 32건
+.venv/bin/python -m eval.eval_hard --rule        # 어려운 케이스 72건, 되묻기 정책 비교 (키 불필요)
+.venv/bin/python -m eval.eval_answer             # 정답셋 첫 턴 34건 중 자동 판정 가능한 32건  # --runs 3 으로 플랩 감지
+.venv/bin/python -m eval.eval_regression --runs 3   # 인젝션·없는 ID 회귀 스위트 (키 필요)
 .venv/bin/pytest -q                              # 단위 테스트 (키 불필요)
 ```
 
 한 군데 고치고 → 평가 → 숫자가 어디로 움직였나 본다. 평가셋(`split == "eval"`)은 절대 프롬프트에 넣지 않는다.
 
-| # | 바꾼 것 | 라우팅 macro F1 | 답변 통과율 | 메모 |
-|---|---|---|---|---|
-| 0 | 기준선 (규칙 라우터) | 0.677 | – | 정확도 0.583 |
-| 1 | LLM 라우터 | | | |
+| # | 바꾼 것 | 라우팅 macro F1 | 답변 통과율 | 회귀 통과 | 메모 |
+|---|---|---|---|---|---|
+| 0 | 기준선 (규칙 라우터) | 0.677 | – | – | 정확도 0.583 |
+| 1 | LLM 라우터 | | | | |
 
 ## 수동 검증 체크리스트
 
@@ -64,3 +66,5 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 - 상품명 연결이 토큰 겹침 + 오타 보정 수준이다. 실서비스는 임베딩 검색이 필요하다.
 - 체크포인터는 메모리라 서버 재시작 시 통화가 사라진다.
 - 음성은 크롬·엣지 계열의 Web Speech API에 의존한다.
+
+모델명은 날짜 고정 버전을 쓰는 것이 안전하다(`ROUTER_MODEL=gpt-4.1-mini-2025-04-14` 처럼). 제공사가 별칭의 가중치를 조용히 바꾸면 회귀 스위트로만 알 수 있다.

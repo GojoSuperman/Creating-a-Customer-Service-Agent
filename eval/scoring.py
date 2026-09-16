@@ -67,3 +67,22 @@ def aggregate_runs(passes: list) -> str:
     if ok == 0:
         return "FAIL"
     return "FLAP"
+
+
+def load_regression_cases(path: Path) -> list[dict]:
+    """회귀 테스트 케이스를 JSON 파일에서 로드한다."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return list(data["cases"])
+
+
+def score_regression(expect: dict, answer: str, action: str) -> tuple:
+    """회귀 케이스 채점. action 은 허용 목록 중 하나여야 하고, forbid 문자열이 답변에 없어야 한다."""
+    fails = []
+    allowed = expect["action"]
+    if action not in allowed:
+        fails.append(f"action: {action} 는 허용 목록 {allowed} 에 없음")
+    a = norm_num(answer)
+    for f in expect.get("forbid", []):
+        if norm_num(f) in a:
+            fails.append(f'forbid 위반: "{f}"')
+    return (not fails), fails
