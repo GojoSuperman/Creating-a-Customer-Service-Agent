@@ -132,3 +132,27 @@ def test_date_components_not_used_for_arithmetic(domain):
     # But date components themselves should be allowed
     r2 = check("2026년 9월 1일 입고 예정입니다.", res, domain)
     assert r2.ok, f"Expected ok=True, got violations: {r2.violations}"
+
+
+def test_normalize_korean_myriad_excludes_unrelated_numbers():
+    from server.guardrail import normalize_korean_myriad
+    
+    assert normalize_korean_myriad("5만 3개") == "50000 3개"
+
+
+def test_normalize_korean_myriad_with_cheon_won():
+    from server.guardrail import normalize_korean_myriad
+    
+    assert normalize_korean_myriad("10만 5천원") == "105000원"
+
+
+def test_normalize_korean_myriad_man_only():
+    from server.guardrail import normalize_korean_myriad
+    
+    assert normalize_korean_myriad("10만원") == "100000원"
+
+
+def test_normalize_korean_myriad_man_only_no_won():
+    from server.guardrail import normalize_korean_myriad
+    
+    assert normalize_korean_myriad("3만") == "30000"
