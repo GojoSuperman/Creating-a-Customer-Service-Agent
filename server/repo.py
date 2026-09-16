@@ -82,6 +82,39 @@ class Repo:
             out.append(o)
         return out
 
+    IN_PROGRESS_EXCLUDED = ("배송완료", "취소")
+
+    def customer_profile(self, cid, limit=5):
+        """상담원 화면용 고객 프로필. 주소·전화 등 개인정보를 포함하므로 프롬프트에는 넣지 않는다.
+        orders 는 최신순이며, 진행 중(배송완료가 아닌) 주문에는 배송 이력(events)과 반품 단계(return_)를 붙인다."""
+        c = self.customer(cid)
+        if not c:
+            return None
+        orders = []
+        for o in self._all("""select order_id,ordered_at,status,status_detail,order_amount,shipping_fee,courier,tracking_no,
+                                    invoice_printed,expected_ship_date,shipped_at,expected_delivery,delivered_at,delay_days,delay_reason,
+                                    return_id,is_external_channel,external_channel_name,note
+                               from orders where customer_id=? order by ordered_at desc limit ?""", cid, limit):
+            items = self._all("select name,option,qty,price from order_items where order_id=? order by id", o["order_id"])
+            o["items"] = items
+            o["items_summary"] = ", ".join(f"{i['name']}×{i['qty']}" if i["qty"] > 1 else i["name"] for i in items)
+            o["in_progress"] = o["status"] not in self.IN_PROGRESS_EXCLUDED
+            if o["in_progress"]:
+                o["events"] = self.shipment_events(o["order_id"])
+                r = self.return_by_id(o["return_id"]) if o.get("return_id") else None
+                o["return_"] = ({"return_id": r["return_id"], "type": r["type"], "stage": r["stage"],
+                                 "expected_completion": r.get("expected_completion"), "refund_amount": r.get("refund_amount"),
+                                 "stage_history": r.get("stage_history", [])} if r else None)
+            orders.append(o)
+        return {"customer_id": c["customer_id"], "name": c["name"], "phone": c["phone"],
+                "address_region": c.get("address_region"), "address": c.get("address"), "joined_at": c.get("joined_at"),
+                "orders": orders, "in_progress_count": sum(1 for o in orders if o["in_progress"])}
+
+    def latest_customer_by_status(self, status: str, today_iso: str, cutoff_iso: str):
+        """cutoff 이후 해당 상태의 주문을 가진 고객 중 가장 최근 주문의 고객 1명."""
+        return self._one("""select customer_id from orders where status=? and ordered_at >= ? and ordered_at <= ?
+                            order by ordered_at desc limit 1""", status, cutoff_iso, today_iso)
+
     def recently_active_customers(self, today_iso: str, cutoff_iso: str, limit: int = 5):
         """최근 14일 내 배송완료가 아닌 주문이 있는 고객을 최신 주문 순으로 distinct 하게 돌려준다."""
         rows = self._all("""

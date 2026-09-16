@@ -93,3 +93,23 @@ def test_tts_returns_audio_when_configured(modumall_dir):
     assert r.status_code == 200 and r.headers["content-type"].startswith("audio/mpeg")
     assert r.content.startswith(b"ID3fake-mp3:")
     assert c.post("/api/tts", json={"text": "  "}).status_code == 422
+
+
+class ProfilePipeline(FakePipeline):
+    def start_call(self, phone=None):
+        self.calls.add("abc")
+        cust = {"customer_id": "C-0001", "name": "홍길동", "phone": phone, "recent_orders": []} if phone else None
+        return "abc", "안녕하세요", cust
+
+    def customer_profile(self, cid):
+        return {"customer_id": cid, "name": "홍길동", "phone": "010-1111-2222", "address": "서울시 어딘가",
+                "address_region": "수도권", "orders": [], "in_progress_count": 0}
+
+
+def test_start_call_returns_admin_profile_separately(modumall_dir):
+    c = TestClient(create_app(ProfilePipeline(), load_domain(modumall_dir)))
+    r = c.post("/api/call/start", json={"phone": "010-1111-2222"}).json()
+    assert r["customer"]["name"] == "홍길동" and "address" not in r["customer"]   # 프롬프트용 dict 에는 주소가 없다
+    assert r["profile"]["address"] == "서울시 어딘가" and r["profile"]["customer_id"] == "C-0001"
+    r = c.post("/api/call/start", json={}).json()
+    assert r["customer"] is None and r["profile"] is None

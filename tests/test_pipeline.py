@@ -286,7 +286,7 @@ def test_sample_customers_have_recent_non_delivered_order(domain, settings):
     repo = Repo(domain.db_path)
     samples = p.sample_customers(5)
     assert samples
-    cutoff = (dt.date(2026, 9, 16) - dt.timedelta(days=14)).isoformat()
+    cutoff = (dt.date(2026, 9, 16) - dt.timedelta(days=30)).isoformat()
     for s in samples:
         c = repo.customer_by_phone(s["phone"])
         orders = repo._all("select ordered_at, status from orders where customer_id=?", c["customer_id"])
@@ -341,3 +341,17 @@ def test_end_call_writes_log(domain, settings):
     p.end_call(cid)
     row = Repo(domain.db_path).call(cid)
     assert row and len(row["turns"]) == 1 and row["turns"][0]["action"] == "ANSWER"
+
+
+def test_sample_customers_carry_hint_and_profile(domain, settings):
+    from server.repo import Repo
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=FakeAnswerer([]))
+    samples = p.sample_customers()
+    assert len(samples) == 8
+    assert all(set(s) == {"name", "phone", "hint"} for s in samples)
+    assert len({s["hint"] for s in samples if s["hint"]}) >= 3   # 상태별로 한 명씩 뽑아 힌트가 다양하다
+    cid = Repo(domain.db_path).customer_by_phone(samples[0]["phone"])["customer_id"]
+    prof = p.customer_profile(cid)
+    assert prof["customer_id"] == cid and "address" in prof
+    _, _, cust = p.start_call(samples[0]["phone"])
+    assert "address" not in cust                      # 프롬프트용 고객 dict 는 그대로 주소 없음

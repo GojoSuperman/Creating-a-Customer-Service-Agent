@@ -11,10 +11,9 @@ body { margin:0; background:var(--bg); color:var(--ink); font-family:"Noto Sans 
 .bubble.agent { background:#243042; align-self:flex-start }
 .bubble.customer { background:#1f5d3a; align-self:flex-end }
 .bubble.system { color:var(--muted); font-size:.85em; align-self:center; text-align:center }
-.caller { display:flex; align-items:center; gap:12px; padding:8px 20px; border-bottom:1px solid var(--line); color:var(--muted); font-size:.85em }
-.caller label { display:flex; align-items:center; gap:6px }
-.caller input { padding:6px 10px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--ink); width:150px }
-.caller select { max-width:180px }
+.caller { display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:.85em; white-space:nowrap }
+.caller select { max-width:190px; font-size:1em }
+#phone-input { padding:6px 10px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--ink); width:140px }
 .interim { min-height:1.6em; padding:0 20px; color:var(--muted); font-style:italic }
 .text-form { padding:8px 20px }
 .text-form input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink) }
@@ -32,9 +31,24 @@ body[data-phase="SPEAKING"] header { box-shadow: inset 0 -3px 0 #60a5fa }
 .admin { overflow-y:auto; padding:20px 24px }
 .admin h2 { margin:0 0 12px; font-size:1.05em; color:var(--muted) }
 .customer-card { background:#16321f; border:1px solid var(--ok); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:.9em }
-.customer-card .name { font-weight:700; color:var(--ok); margin-bottom:6px }
+.customer-card.guest { background:var(--paper); border-color:var(--line); color:var(--muted) }
+.customer-card .name { font-weight:700; color:var(--ok); margin-bottom:6px; font-size:1.05em }
+.customer-card .name small { font-weight:400; color:var(--muted); margin-left:8px; font-size:.85em }
+.customer-card dl { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; margin:0 0 8px }
+.customer-card dt { color:var(--muted) } .customer-card dd { margin:0 }
+.customer-card h4 { margin:10px 0 4px; font-size:.85em; color:var(--muted); text-transform:none; border-top:1px dashed var(--line); padding-top:8px }
 .customer-card ul { margin:0; padding:0 0 0 18px }
 .customer-card li { margin:2px 0 }
+.order { list-style:none; margin:6px 0 !important; padding:8px 10px; border-radius:8px; background:rgba(0,0,0,.25) }
+.order .head { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+.order .id { font-weight:700 } .order .amt { margin-left:auto; color:var(--muted) }
+.order .items { color:#cbd5e1; margin-top:2px }
+.order .detail { color:var(--muted); font-size:.92em; margin-top:2px }
+.order .events { margin:4px 0 0 12px; padding:0; font-size:.88em; color:var(--muted); border-left:2px solid var(--line) }
+.order .events li { list-style:none; padding-left:8px }
+.status { padding:1px 8px; border-radius:6px; font-size:.8em; background:#334155 }
+.status.ship { background:#1d4ed8 } .status.done { background:#334155 } .status.wait { background:#92400e }
+.status.ret { background:#7c2d12 } .status.delay { background:var(--bad) } .status.make { background:#4c1d95 }
 .turn { background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; font-size:.9em }
 .turn-bad { border-color:var(--bad) }
 .turn .q { color:#a7f3d0; margin-bottom:6px } .turn .a { color:var(--muted); margin-top:6px; border-top:1px dashed var(--line); padding-top:6px }

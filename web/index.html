@@ -13,10 +13,6 @@
       <div class="shop"><span id="shop-name">…</span> 고객센터</div>
       <div class="meta"><span id="status">대기</span> · <span id="clock">00:00</span></div>
     </header>
-    <div class="caller">
-      <label>발신 번호 <input id="phone-input" type="tel" placeholder="비워 두면 비회원" autocomplete="off"></label>
-      <select id="sample-select"><option value="">샘플 고객 선택…</option></select>
-    </div>
     <div id="transcript" class="transcript"></div>
     <div id="interim" class="interim"></div>
     <form id="text-form" class="text-form">
@@ -25,6 +21,8 @@
     <div class="controls">
       <button id="btn-call" class="call">📞 전화 걸기</button>
       <button id="btn-hangup" class="hangup">끊기</button>
+      <label class="caller">고객 <select id="sample-select"><option value="">비회원(번호 없음)</option><option value="__manual">번호 직접 입력…</option></select></label>
+      <input id="phone-input" type="tel" placeholder="010-0000-0000" autocomplete="off" hidden>
       <label class="voice">음성 <select id="engine-select"><option value="browser">브라우저</option><option value="server">OpenAI</option></select></label>
       <label class="voice">목소리 <select id="voice-select"></select></label>
     </div>

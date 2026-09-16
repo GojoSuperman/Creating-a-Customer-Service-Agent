@@ -261,20 +261,37 @@ class Pipeline:
                            datetime.datetime.now().isoformat())
         return cid, self._greeting_for(customer), customer
 
-    def sample_customers(self, n: int = 5) -> list[dict]:
-        """최근 14일 내 미배송 완료 주문이 있는 고객을 우선 추천한다 (통화 데모가 실제 진행 중인
+    def customer_profile(self, customer_id: str) -> Optional[dict]:
+        """상담원 패널 전용. 주소·전화 등을 포함하므로 답변 프롬프트(self.customers)와는 분리해 둔다."""
+        return self.repo.customer_profile(customer_id)
+
+    def _sample_entry(self, c: dict) -> dict:
+        active = [o["status"] for o in self.repo.recent_orders(c["customer_id"], 3) if o["status"] not in self.repo.IN_PROGRESS_EXCLUDED]
+        return {"name": c["name"], "phone": c["phone"], "hint": "·".join(dict.fromkeys(active)) or None}
+
+    def sample_customers(self, n: int = 8) -> list[dict]:
+        """최근 30일 내 미배송 완료 주문이 있는 고객을 우선 추천한다 (통화 데모가 실제 진행 중인
         주문을 보여줄 수 있도록). 부족하면 정식 주문 O-1001..O-1005 소유자로 채운다."""
         seen: set[str] = set()
         out: list[dict] = []
-        cutoff = (TODAY - datetime.timedelta(days=14)).isoformat()
-        for row in self.repo.recently_active_customers(TODAY.isoformat(), cutoff, n):
+        cutoff = (TODAY - datetime.timedelta(days=30)).isoformat()
+        # 테스트 다양성: 진행 중 상태별로 한 명씩 먼저 뽑는다 (배송중 → 반품 → 교환 → 지연 → 제작 → 결제완료)
+        for status in ("배송중", "반품진행", "교환진행", "배송지연", "제작중", "결제완료"):
+            row = self.repo.latest_customer_by_status(status, TODAY.isoformat(), cutoff)
+            if not row or row["customer_id"] in seen:
+                continue
+            seen.add(row["customer_id"])
+            c = self.repo.customer(row["customer_id"])
+            if c:
+                out.append(self._sample_entry(c))
+        for row in self.repo.recently_active_customers(TODAY.isoformat(), cutoff, n + len(seen)):
             cid = row["customer_id"]
             if cid in seen:
                 continue
             seen.add(cid)
             c = self.repo.customer(cid)
             if c:
-                out.append({"name": c["name"], "phone": c["phone"]})
+                out.append(self._sample_entry(c))
             if len(out) >= n:
                 return out
         for i in range(1, n + 1):
@@ -287,7 +304,7 @@ class Pipeline:
             seen.add(cid)
             c = self.repo.customer(cid)
             if c:
-                out.append({"name": c["name"], "phone": c["phone"]})
+                out.append(self._sample_entry(c))
         return out
 
     def end_call(self, call_id: str) -> None:

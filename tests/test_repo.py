@@ -116,3 +116,23 @@ def test_concurrent_access(repo):
     assert len(results["exceptions"]) == 0, f"Concurrent access errors: {results['exceptions']}"
     assert len(results["orders"]) == 160  # 8 threads × 20 reads
     assert all(o["customer_id"] == "C-0001" for o in results["orders"])
+
+
+def test_customer_profile_shape(repo):
+    # O-1006 은 반품(R-2001)이 걸린 정식 주문. 그 고객의 프로필에는 진행 중 주문에 배송 이력과 반품 단계가 붙는다
+    o = repo.order("O-1006")
+    p = repo.customer_profile(o["customer_id"])
+    assert p["name"] and p["phone"].startswith("010-") and p["address"] and p["address_region"]
+    assert 1 <= len(p["orders"]) <= 5
+    assert p["orders"] == sorted(p["orders"], key=lambda x: x["ordered_at"], reverse=True)
+    for od in p["orders"]:
+        assert "items_summary" in od and "items" in od and isinstance(od["in_progress"], bool)
+        if od["in_progress"]:
+            assert "events" in od and "return_" in od
+        else:
+            assert od["status"] == "배송완료"
+    target = next(od for od in p["orders"] if od["order_id"] == "O-1006")
+    assert target["in_progress"] and target["return_"]["return_id"] == "R-2001"
+    assert target["return_"]["stage"] and isinstance(target["return_"]["stage_history"], list)
+    assert p["in_progress_count"] == sum(1 for od in p["orders"] if od["in_progress"])
+    assert repo.customer_profile("C-9999") is None

@@ -61,7 +61,11 @@ def create_app(pipeline, domain: Domain, tts=None) -> FastAPI:
     def start_call(req: Optional[StartRequest] = None):
         phone = req.phone if req else None
         call_id, greeting, customer = pipeline.start_call(phone=phone)
-        return {"call_id": call_id, "greeting": greeting, "customer": customer}
+        # profile 은 상담원 화면 전용(주소·전화·배송 이력). 프롬프트로 가는 customer 와 분리해 내려준다
+        profile = None
+        if customer and hasattr(pipeline, "customer_profile"):
+            profile = pipeline.customer_profile(customer["customer_id"])
+        return {"call_id": call_id, "greeting": greeting, "customer": customer, "profile": profile}
 
     @app.post("/api/call/end")
     def end_call(req: EndRequest):

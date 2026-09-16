@@ -41,11 +41,12 @@ async function startCall() {
   setPhase("RINGING");
   await playRing(1500);
   if (gen !== state.gen) return;
-  const phone = $("phone-input").value || null;
+  const sel = $("sample-select").value;
+  const phone = (sel === "__manual" ? $("phone-input").value : sel) || null;
   const r = await fetch("/api/call/start", { method: "POST", headers: { "Content-Type": "application/json" },
                                              body: JSON.stringify({ phone }) }).then(r => r.json());
   if (gen !== state.gen) return;
-  panel.setCustomer(r.customer || null);
+  panel.setCustomer(r.customer || null, r.profile || null);
   state.callId = r.call_id; state.startedAt = Date.now();
   clearInterval(state.timer);
   state.timer = setInterval(() => {
@@ -159,9 +160,15 @@ $("voice-select").onchange = (e) => { const v = voice.listVoices()[e.target.valu
 (async () => {
   const d = await fetch("/api/domain").then(r => r.json());
   $("shop-name").textContent = d.name;
-  $("sample-select").innerHTML = '<option value="">샘플 고객 선택…</option>' +
-    (d.sample_customers || []).map(c => `<option value="${esc(c.phone)}">${esc(c.name)} · ${esc(c.phone)}</option>`).join("");
-  $("sample-select").onchange = (e) => { if (e.target.value) $("phone-input").value = e.target.value; };
+  // 전화 걸기 옆 고객 드롭다운: 미리 준비된 고객 이름을 골라 그 발신 번호로 테스트한다
+  $("sample-select").innerHTML = '<option value="">비회원(번호 없음)</option>' +
+    (d.sample_customers || []).map(c => `<option value="${esc(c.phone)}">${esc(c.name)}${c.hint ? " · " + esc(c.hint) : ""}</option>`).join("") +
+    '<option value="__manual">번호 직접 입력…</option>';
+  $("sample-select").onchange = (e) => {
+    const manual = e.target.value === "__manual";
+    $("phone-input").hidden = !manual;
+    if (manual) $("phone-input").focus();
+  };
   // 기본은 무료인 브라우저 음성. 서버 TTS 가 설정된 경우에만 OpenAI 를 고를 수 있다
   if (!d.tts_available) $("engine-select").querySelector('option[value="server"]').disabled = true;
   if (!voice.supported.recognition) enableTextOnly("이 브라우저는 음성 인식을 지원하지 않습니다. 크롬 또는 엣지를 권장합니다.");
