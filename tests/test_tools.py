@@ -71,6 +71,20 @@ def test_find_customer_blocks_other_customers_order(tools, modumall_dir):
         current_caller.reset(token)
 
 
+def test_find_customer_by_order_id_own_record(tools, modumall_dir):
+    # F2 긍정 케이스: caller 가 O-1001 소유자 본인이면 order_id 로도 자기 기록을 조회할 수 있다.
+    from server.repo import Repo
+    from server.domain import load_domain
+    repo = Repo(load_domain(modumall_dir).db_path)
+    owner = repo.customer(repo.order("O-1001")["customer_id"])
+    token = current_caller.set({"customer_id": owner["customer_id"], "phone": owner["phone"]})
+    try:
+        result = tools["find_customer"](order_id="O-1001")
+        assert result["customer_id"] == owner["customer_id"]
+    finally:
+        current_caller.reset(token)
+
+
 def test_get_order_status_includes_tracking_events(tools):
     o = tools["get_order_status"]("O-1002")
     assert "events" in o and isinstance(o["events"], list)

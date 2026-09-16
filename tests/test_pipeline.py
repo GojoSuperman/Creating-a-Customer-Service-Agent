@@ -135,6 +135,19 @@ def test_infer_action_still_detects_real_ask():
     assert infer_action("어떤 상품인지 말씀해 주시겠어요?", {}) == "ASK"
 
 
+def test_infer_action_closing_courtesy_does_not_swallow_real_question():
+    # 종결 인사와 같은 낱말("추가로", "필요")이 진짜 질문 문장에 섞여 있어도, 그 문장이
+    # "?" 로 끝나면 문장 단위 제거 대상에서 제외해 ASK 로 남아야 한다.
+    assert infer_action("추가로 필요한 사이즈를 말씀해 주시겠어요?", {}) == "ASK"
+    assert infer_action("교환하시려면 추가로 필요한 서류가 있으신가요?", {}) == "ASK"
+    assert infer_action("주문번호를 말씀해 주시겠어요?", {}) == "ASK"
+
+
+def test_infer_action_drops_only_closing_sentence():
+    text = "네, 더 궁금하신 점 있으시면 언제든 말씀해 주세요."
+    assert infer_action(text, {}) == "ANSWER"
+
+
 def test_infer_action_sees_repeated_keys():
     # 같은 도구가 한 턴에 여러 번 불리면 results 에 get_order_status#2, #3 처럼 쌓인다.
     results = {"get_order_status": {"error": "x"}, "get_order_status#2": {"is_external_channel": True}}

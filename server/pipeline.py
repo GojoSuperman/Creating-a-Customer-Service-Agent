@@ -27,8 +27,10 @@ TODAY = datetime.date(2026, 9, 16)
 
 ASK_PATTERN = r"\?|주시겠|알려주|말씀해"
 # 답변 끝의 상담 종결 인사("더 궁금한 점 있으시면 말씀해 주세요")는 질문형 어미를 갖고 있어도
-# ASK 로 오판되면 안 된다. infer_action 이 판정 전에 이 부분을 잘라낸다.
-CLOSING_PATTERN = r"[^.!?\n]*(?:(?:더|추가로|또)\s*(?:궁금|문의|필요)|언제든|편하게\s*말씀)[^.!?\n]*[.!?]?\s*$"
+# ASK 로 오판되면 안 된다. 다만 "추가로 필요한 사이즈를 말씀해 주시겠어요?"처럼 실제 질문에도
+# 같은 낱말(추가로/필요)이 섞여 있을 수 있어, 문장 전체를 지우는 대신 마지막 문장이 "?" 로
+# 끝나지 않으면서 이 패턴에 걸릴 때만 그 문장 하나를 판정에서 제외한다.
+CLOSING_PATTERN = r"(?:더|추가로|또)\s*(?:궁금|문의|필요)|언제든|편하게\s*말씀"
 
 
 def infer_action(text: str, results: dict) -> str:
@@ -47,8 +49,13 @@ def infer_action(text: str, results: dict) -> str:
         if isinstance(value, dict) and value.get("is_external_channel"):
             return "OUT_OF_SCOPE"
     if not results:
-        stripped = re.sub(CLOSING_PATTERN, "", text)
-        if re.search(ASK_PATTERN, stripped):
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        check_text = text
+        if sentences:
+            last = sentences[-1]
+            if not last.rstrip().endswith("?") and re.search(CLOSING_PATTERN, last):
+                check_text = " ".join(sentences[:-1])
+        if re.search(ASK_PATTERN, check_text):
             return "ASK"
     return "ANSWER"
 
