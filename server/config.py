@@ -41,5 +41,5 @@ def load_settings() -> Settings:
         tts_model=os.environ.get("TTS_MODEL", ""),
         tts_voice=os.environ.get("TTS_VOICE", "nova"),
         judge_model=os.environ.get("JUDGE_MODEL", "gpt-4.1-mini"),
-        conf_margin=float(os.environ.get("CONF_MARGIN", "0.0")),
+        conf_margin=float(os.environ.get("CONF_MARGIN", "0.3")),
     )
