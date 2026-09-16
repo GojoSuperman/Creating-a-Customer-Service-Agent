@@ -175,3 +175,31 @@ def test_clarify_message_default_lists_route_labels(domain):
     for name, r in domain.routes.items():
         if name != "OTHER":
             assert r.label in domain.clarify_message
+
+
+def test_answerer_exhaustion_becomes_escalate(domain, settings):
+    ans = FakeAnswerer([(domain.escalate_message, {}, [{"name": "search_product", "args": {"query": "x"}}])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    r = p.turn(p.start_call(), "세트 하나요")
+    assert r.action == "ESCALATE" and r.end_call
+    assert r.tools and r.tools[0]["name"] == "search_product"
+
+
+def test_router_sees_current_question_first(domain, settings):
+    seen = []
+    def classify(q):
+        seen.append(q)
+        return RouteDecision(route="SHIPPING", confidence=0.9, reason="t")
+    ans = FakeAnswerer([("어떤 상품인가요?", {}, []), ("네.", {"get_product_detail": {}}, [])])
+    p = Pipeline(domain, settings, router=build_router(domain, 0.5, classify=classify), answerer=ans)
+    cid = p.start_call()
+    p.turn(cid, "캔버스화 배송비요")
+    p.turn(cid, "소재는요?")
+    assert seen[1].startswith("소재는요?") and "캔버스화 배송비요" in seen[1]
+
+
+def test_stt_order_id_is_normalized(domain, settings):
+    ans = FakeAnswerer([("네.", {"get_order_status": {}}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    p.turn(p.start_call(), "0-1001 주문 언제 와요")
+    assert ans.questions[0][0].startswith("O-1001")

@@ -41,6 +41,11 @@ def infer_action(text: str, results: dict) -> str:
     return "ANSWER"
 
 
+def normalize_stt(text: str) -> str:
+    """음성 인식이 흔히 틀리는 식별자 표기를 바로잡는다. "0-1001" → "O-1001", "o-1001" → "O-1001"."""
+    return re.sub(r"\b[0oO]-(\d{4})\b", r"O-\1", text)
+
+
 class AgentState(TypedDict, total=False):
     question: str
     history: Annotated[list, operator.add]   # 리듀서: 턴마다 쌓인다
@@ -92,7 +97,9 @@ class Pipeline:
         # state 에는 전체 history 를 그대로 쌓아 두고, 라우터는 최근 두 발화만 본다
         # (긴 통화일수록 앞 turn 이 라우팅을 오염시키는 걸 줄이기 위한 최소 완화책).
         hist = (state.get("history") or [])[-2:]
-        q = " ".join(hist + [state["question"]])
+        q = state["question"]
+        if hist:
+            q = f"{q} (직전 발화: {' / '.join(hist)})"   # 현재 문의를 앞에 둬 라우팅이 이력에 끌리지 않게
         r = self.router.invoke({"question": q})
         base = {"route": r["route"], "confidence": r["confidence"], "action": r["action"],
                 "attempts": 0, "tools": [], "results": {}, "guardrail": None}
@@ -112,6 +119,9 @@ class Pipeline:
                                                     history=state.get("history") or [],
                                                     feedback=feedback)
         attempts = state.get("attempts", 0) + 1
+        if text == self.domain.escalate_message:
+            # 답변기가 도구 호출 상한에 걸려 스스로 이관 문구를 돌려준 경우 — 일반 답변으로 흘리지 않는다
+            return {"action": "ESCALATE", "tools": calls, "results": results, "attempts": attempts}
         action_inferred = infer_action(text, results)
         if action_inferred == "OUT_OF_SCOPE":
             return {"action": "OUT_OF_SCOPE", "tools": calls, "results": results, "attempts": attempts}
@@ -148,7 +158,9 @@ class Pipeline:
     def _after_answer(self, state: AgentState) -> str:
         if state["action"] == "ASK":
             return END
-        return "escalate" if state["action"] == "OUT_OF_SCOPE" else "guard"
+        if state["action"] in ("OUT_OF_SCOPE", "ESCALATE"):
+            return "escalate"
+        return "guard"
 
     def _after_guard(self, state: AgentState) -> str:
         if state["action"] == "ANSWER":
@@ -178,6 +190,7 @@ class Pipeline:
         if call_id not in self.calls:
             raise KeyError(call_id)
         t0 = time.perf_counter()
+        text = normalize_stt(text)
         cfg = {"configurable": {"thread_id": call_id}}
         self._current_call = call_id
         out = self.graph.invoke({"question": text}, cfg)

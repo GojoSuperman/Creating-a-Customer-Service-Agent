@@ -14,6 +14,29 @@ from server.domain import Domain
 
 CAPITAL = ("서울", "경기", "인천", "수도권")
 
+_CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+_JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
+_JONG = " ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ"
+
+
+def jamo(s: str) -> str:
+    """한글 음절을 초성·중성·종성으로 풀어 쓴다. 음성 인식 오류("캔버스화"→"캠퍼스와")는
+    글자 단위로는 전혀 다른 문자열이지만 자모 단위로는 대부분 겹친다."""
+    out = []
+    for ch in s:
+        c = ord(ch) - 0xAC00
+        if 0 <= c < 11172:
+            out += [_CHO[c // 588], _JUNG[(c % 588) // 28]]
+            if c % 28:
+                out.append(_JONG[c % 28])
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def jamo_ratio(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, jamo(a), jamo(b)).ratio()
+
 
 def clean(obj):
     """$ 로 시작하는 내부 주석 키를 재귀적으로 제거한다."""
@@ -114,7 +137,9 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
                 score = overlap / len(qt)
                 if score == 0:
                     # 오타 보정: 공백 제거 문자열 유사도
-                    ratio = difflib.SequenceMatcher(None, flat_q, flat).ratio()
+                    # 글자 단위 유사도, 그것도 안 되면 자모 단위 유사도(음성 인식 오류 대응)
+                    ratio = max(difflib.SequenceMatcher(None, flat_q, flat).ratio(),
+                                jamo_ratio(flat_q, flat))
                     if ratio >= 0.6:
                         score = round(ratio * 0.9, 2)
                 if score > 0:

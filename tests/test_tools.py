@@ -175,3 +175,13 @@ def test_name_token_inside_query_token_is_not_a_match(tools):
 def test_leather_jacket_beats_leather_belt(tools):
     r = tools["search_product"]("가죽 자켓 블랙 XL")
     assert r["resolved_product_id"] == "P3001"
+
+
+def test_speech_misrecognition_is_matched_by_jamo(tools):
+    # 음성 인식이 "캔버스화"를 "캠퍼스와"/"캠퍼스"로 듣는 경우
+    assert tools["search_product"]("캠퍼스와")["resolved_product_id"] == "P4001"
+    assert tools["search_product"]("캠퍼스")["resolved_product_id"] == "P4001"
+
+
+def test_jamo_does_not_overmatch(tools):
+    assert tools["search_product"]("가방끈")["candidates"] == []

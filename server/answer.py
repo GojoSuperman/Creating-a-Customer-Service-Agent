@@ -79,15 +79,27 @@ class Answerer:
         `feedback` 이 있으면 (가드레일 재시도) 사람 메시지 끝에 반려 사유 문단을
         덧붙여 같은 프롬프트를 그대로 다시 보내지 않는다.
         """
-        full_q = " ".join((history or []) + [question])
+        # 이전 발화는 참고용으로만 표시하고, 답할 대상은 현재 문의 하나임을 분명히 한다.
+        # 공백으로 이어 붙이면 모델이 지난 질문들까지 한꺼번에 다시 답한다.
+        if history:
+            prior = "\n".join(f"- {h}" for h in history[-3:])
+            full_q = (f"[이전 발화 — 참고용, 상품·주문번호 파악에만 쓴다]\n{prior}\n\n"
+                      f"[현재 문의 — 이것에만 답한다]\n{question}")
+        else:
+            full_q = question
         if feedback:
             full_q += f"\n\n[직전 답변 반려 사유] {feedback}\n조회 결과와 매뉴얼에 있는 값만 써서 다시 답하십시오."
         init = {"messages": [("system", build_answer_prompt(self.domain, route)), ("human", full_q)]}
         calls: list[dict] = []
+        out = init
+        exhausted = False
         try:
-            out = self.graph.invoke(init, {"recursion_limit": 2 * self.max_tool_turns + 1})
+            # stream 으로 돌려 상한에 걸려도 그때까지의 메시지(도구 호출 기록)를 잃지 않는다
+            for step in self.graph.stream(init, {"recursion_limit": 2 * self.max_tool_turns + 1},
+                                          stream_mode="values"):
+                out = step
         except GraphRecursionError:
-            return self.domain.escalate_message, {}, calls
+            exhausted = True
         results: dict = {}
         seen_counts: dict[str, int] = {}
         for m in out["messages"]:
@@ -106,4 +118,7 @@ class Answerer:
                 n = seen_counts[m.name]
                 key = m.name if n == 1 else f"{m.name}#{n}"
                 results[key] = value
+        if exhausted:
+            # 파이프라인은 이 문구를 보고 ESCALATE 로 판정한다 (pipeline._node_answer 참고)
+            return self.domain.escalate_message, results, calls
         return out["messages"][-1].content, results, calls

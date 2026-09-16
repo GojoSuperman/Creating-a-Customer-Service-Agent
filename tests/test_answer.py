@@ -51,7 +51,7 @@ def test_recursion_limit_escalates(domain):
     llm = RunnableLambda(lambda m: forever)
     text, results, calls = Answerer(domain, llm=llm, max_tool_turns=2).answer("세트", "PRODUCT_INFO")
     assert text == domain.escalate_message
-    assert results == {}
+    assert "search_product" in results   # 상한에 걸려도 그때까지의 도구 결과는 보존한다
 
 
 def test_repeated_tool_calls_are_all_kept(domain):
@@ -92,3 +92,22 @@ def test_history_is_prepended(domain):
     human = seen["human"][0]
     content = human.content if hasattr(human, "content") else human[1]
     assert "캔버스화 살 건데요" in content and "그거 배송비는요?" in content
+
+
+def test_history_is_marked_as_prior_context(domain):
+    seen = {}
+    def capture(messages):
+        human = [m for m in messages if getattr(m, "type", "") == "human"]
+        seen["content"] = human[0].content
+        return AIMessage(content="네.")
+    Answerer(domain, llm=RunnableLambda(capture)).answer("배송비는요?", "SHIPPING", history=["가죽 자켓 살 건데요"])
+    c = seen["content"]
+    assert "[이전 발화" in c and "가죽 자켓 살 건데요" in c
+    assert "[현재 문의" in c and c.rstrip().endswith("배송비는요?")
+
+
+def test_recursion_limit_keeps_tool_call_record(domain):
+    forever = AIMessage(content="", tool_calls=[{"name": "search_product", "id": "x", "args": {"query": "세트"}}])
+    text, results, calls = Answerer(domain, llm=RunnableLambda(lambda m: forever), max_tool_turns=2).answer("세트", "PRODUCT_INFO")
+    assert text == domain.escalate_message
+    assert len(calls) >= 1 and calls[0]["name"] == "search_product"
