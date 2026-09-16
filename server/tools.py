@@ -83,53 +83,85 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
             else:
                 tokens.append(t)
         qt = tokens
-        has_alias_token = any(t in aliases for t in qt)
 
-        # 2) 상품명 검색(토큰 겹침/difflib)을 먼저 시도한다. 유일한 최고 점수 후보가 있으면
-        #    그것을 바로 확정한다 — 범주어 사전(팬티 등)이 정확한 상품명 일치를 가려서는 안 된다.
-        flat_q = query.replace(" ", "")
-        hits = []
-        for pid, p in products.items():
-            name = p["name"]
-            flat = name.replace(" ", "")
-            nt = _toks(name)
-            overlap = sum(1 for t in qt if t in flat or any(t in x or x in t for x in nt))
-            score = overlap / len(qt)
-            if score == 0:
-                # 오타 보정: 공백 제거 문자열 유사도
-                ratio = difflib.SequenceMatcher(None, flat_q, flat).ratio()
-                if ratio >= 0.6:
-                    score = round(ratio * 0.9, 2)
-            if score > 0:
-                hits.append({"product_id": pid, "name": name, "category": p["category"],
-                             "price": p["price"], "score": round(score, 2)})
-        hits.sort(key=lambda h: -h["score"])
-        top = [h for h in hits if h["score"] == hits[0]["score"]] if hits else []
-        ambiguous = len(top) > 1
-        # not_in_catalog 은 동의어 사전(search.synonyms 의 null 값)에서만 판정한다.
-        # 여기(이름 검색)의 빈 후보는 오타·표현 차이일 수 있으므로 미취급 단정 대신 되묻기로 처리한다.
-        name_result = {"query": query, "candidates": hits[:5],
-                       "resolved_product_id": top[0]["product_id"] if len(top) == 1 else None,
-                       "ambiguous": ambiguous, "category_query": False,
-                       "not_in_catalog": False,
-                       "note": "후보가 여러 개입니다. 어느 상품인지 고객에게 확인하십시오." if ambiguous else None}
-        if len(top) == 1:
-            result = dict(name_result)
-            result["category_query"] = has_alias_token
+        # 범주어 토큰 판별. 정확히 같거나, 뒤에 흔한 조사만 붙은 형태("신발도")까지 인정한다.
+        # 단순 부분 문자열 포함은 "가방끈"처럼 다른 낱말을 오인식하므로 조사 화이트리스트로 제한한다.
+        _particles = ("도", "는", "은", "이", "가", "을", "를", "만", "로", "으로")
+
+        def _alias_match(key: str, token: str) -> bool:
+            if token == key:
+                return True
+            if token.startswith(key):
+                return token[len(key):] in _particles
+            return False
+
+        alias_tokens = []
+        for t in qt:
+            for k in aliases:
+                if k not in alias_tokens and _alias_match(k, t):
+                    alias_tokens.append(k)
+
+        def _name_search():
+            flat_q = query.replace(" ", "")
+            hits = []
+            for pid, p in products.items():
+                name = p["name"]
+                flat = name.replace(" ", "")
+                nt = _toks(name)
+                overlap = sum(1 for t in qt if t in flat or any(t in x or x in t for x in nt))
+                score = overlap / len(qt)
+                if score == 0:
+                    # 오타 보정: 공백 제거 문자열 유사도
+                    ratio = difflib.SequenceMatcher(None, flat_q, flat).ratio()
+                    if ratio >= 0.6:
+                        score = round(ratio * 0.9, 2)
+                if score > 0:
+                    hits.append({"product_id": pid, "name": name, "category": p["category"],
+                                 "price": p["price"], "score": round(score, 2)})
+            hits.sort(key=lambda h: -h["score"])
+            top = [h for h in hits if h["score"] == hits[0]["score"]] if hits else []
+            ambiguous = len(top) > 1
+            # not_in_catalog 은 동의어 사전(search.synonyms 의 null 값)에서만 판정한다.
+            # 여기(이름 검색)의 빈 후보는 오타·표현 차이일 수 있으므로 미취급 단정 대신 되묻기로 처리한다.
+            result = {"query": query, "candidates": hits[:5],
+                     "resolved_product_id": top[0]["product_id"] if len(top) == 1 else None,
+                     "ambiguous": ambiguous, "category_query": False,
+                     "not_in_catalog": False,
+                     "note": "후보가 여러 개입니다. 어느 상품인지 고객에게 확인하십시오." if ambiguous else None}
+            return result, top
+
+        # 범주어가 전혀 없으면 상품명 검색만 그대로 수행한다.
+        if not alias_tokens:
+            result, _top = _name_search()
             return result
 
-        # 3) 유일한 상품명 일치가 없을 때만 범주어 사전으로 넘어간다. 문장 속 어디에 있어도 잡는다
-        for t in qt:
-            if t in aliases:
-                ids = aliases[t]
-                cands = _candidates_for_ids(ids)
-                return {"query": query, "candidates": cands,
-                        "resolved_product_id": ids[0] if len(ids) == 1 else None,
-                        "ambiguous": len(ids) > 1, "category_query": True, "not_in_catalog": False,
-                        "note": "범주 질의입니다. 후보 중 어느 상품인지 고객에게 확인하십시오." if len(ids) > 1 else None}
+        # 범주어가 둘 이상이면 서로 다른 상품군이 섞인 복합 발화다. 확정하지 말고 되묻는다.
+        if len(alias_tokens) >= 2:
+            union_ids = []
+            for k in alias_tokens:
+                for pid in aliases[k]:
+                    if pid not in union_ids:
+                        union_ids.append(pid)
+            cands = _candidates_for_ids(union_ids)
+            return {"query": query, "candidates": cands,
+                    "resolved_product_id": union_ids[0] if len(union_ids) == 1 else None,
+                    "ambiguous": len(union_ids) > 1, "category_query": True, "not_in_catalog": False,
+                    "note": "여러 상품군이 언급되었습니다. 어느 상품인지 확인하십시오."}
 
-        # 4) 범주어도 없으면 상품명 검색 결과를 그대로 돌려준다(모호하거나 후보 없음 포함)
-        return name_result
+        # 범주어가 정확히 하나면, 상품명 검색이 유일한 후보를 냈고 그 후보가 그 범주어의
+        # 상품 집합 안에 있을 때만 확정한다. 그 밖에는 범주어 후보 집합으로 되묻는다.
+        key = alias_tokens[0]
+        ids = aliases[key]
+        name_result, top = _name_search()
+        if len(top) == 1 and top[0]["product_id"] in ids:
+            result = dict(name_result)
+            result["category_query"] = True
+            return result
+        cands = _candidates_for_ids(ids)
+        return {"query": query, "candidates": cands,
+                "resolved_product_id": ids[0] if len(ids) == 1 else None,
+                "ambiguous": len(ids) > 1, "category_query": True, "not_in_catalog": False,
+                "note": "범주 질의입니다. 후보 중 어느 상품인지 고객에게 확인하십시오." if len(ids) > 1 else None}
 
     def get_order_status(order_id: str) -> dict:
         """주문번호로 주문의 현재 진행 단계와 배송 정보를 조회한다."""

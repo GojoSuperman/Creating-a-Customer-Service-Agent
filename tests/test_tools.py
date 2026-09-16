@@ -129,10 +129,11 @@ def test_existing_name_search_unchanged(tools):
 
 def test_exact_product_name_beats_alias(tools):
     # "팬티" 는 범주어 사전에 있지만, 문장 전체로 보면 상품명 "브라·팬티 세트" 와 유일하게
-    # 가장 높은 점수로 겹친다. 범주어 사전이 정확한 상품명 일치를 가려서는 안 된다(F1).
+    # 가장 높은 점수로 겹친다. 범주어(단일 토큰)의 상품 집합 안에 있는 경우에만 확정한다(F1).
     r = tools["search_product"]("브라·팬티 세트 80A로 살 건데 팬티는 몇 사이즈로 와요?")
     assert r["resolved_product_id"] == "P1003"
     assert r["ambiguous"] is False
+    assert r["category_query"] is True
 
 
 def test_alias_used_when_name_search_ambiguous(tools):
@@ -141,6 +142,23 @@ def test_alias_used_when_name_search_ambiguous(tools):
     r = tools["search_product"]("화장품 세트")
     assert r["ambiguous"] is True and r["category_query"] is True
     assert {c["product_id"] for c in r["candidates"]} == {"P5001", "P5002", "P5003"}
+
+
+def test_mixed_alias_intent_asks_instead_of_guessing(tools):
+    # "반지"(단품)와 "신발"(범주, 조사가 붙은 "신발도" 형태)이 한 문장에 섞여 있으면
+    # 상품명 검색이 우연히 하나를 골라도(예: 반지 P2002) 그대로 확정해서는 안 된다.
+    # 서로 다른 상품군이 섞였으니 후보를 모아 되묻는다(controller fix).
+    r = tools["search_product"]("반지 신발도 있어요?")
+    assert r["ambiguous"] is True
+    assert r["category_query"] is True
+    assert {"P2002", "P4001", "P4002"} <= {c["product_id"] for c in r["candidates"]}
+
+
+def test_mixed_alias_intent_two_exact_alias_tokens(tools):
+    r = tools["search_product"]("레깅스 신발")
+    assert r["ambiguous"] is True
+    assert r["category_query"] is True
+    assert {"P3005", "P4001", "P4002"} <= {c["product_id"] for c in r["candidates"]}
 
 
 def test_find_identifiers():

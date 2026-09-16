@@ -183,3 +183,8 @@ def test_normalize_korean_myriad_man_cheon_then_count(domain):
 def test_normalize_korean_myriad_man_followed_by_date_not_merged(domain):
     from server.guardrail import normalize_korean_myriad
     assert normalize_korean_myriad("3만 2일 후") == "30000 2일 후"
+
+
+def test_normalize_korean_myriad_man_followed_by_year_not_merged():
+    from server.guardrail import normalize_korean_myriad
+    assert normalize_korean_myriad("3만 5년 후") == "30000 5년 후"
