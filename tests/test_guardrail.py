@@ -76,3 +76,25 @@ def test_log_violation_appends_jsonl(tmp_path):
     assert len(lines) == 2
     assert json.loads(lines[1])["call_id"] == "c2"
     assert "ts" in json.loads(lines[0])
+
+
+def test_hedge_in_other_sentence_does_not_mask_assertion(domain):
+    # Hedge in sentence 2, but unhedged assertion about expected_date in sentence 1
+    # Should trigger "미확정값 확답" violation
+    res = {"get_restock_info": {"is_confirmed": False, "expected_date": None}}
+    r = check("재입고 예정일은 9월 15일입니다. 검품이 완료되지 않아 배송비 부담 여부는 아직 확정되지 않았습니다.", res, domain)
+    assert any(v["type"] == "미확정값 확답" for v in r.violations)
+
+
+def test_date_components_not_used_for_arithmetic(domain):
+    # ISO date components should be allowed directly but not used for arithmetic derivation
+    res = {"get_shipping_policy": {"free_shipping_threshold": 100000},
+           "get_restock_info": {"expected_date": "2026-09-01", "is_confirmed": True}}
+
+    # 102026 should trigger violation (not 2026 + 100000)
+    r = check("102,026원입니다.", res, domain)
+    assert any(v["type"] == "출처 불명 수치" for v in r.violations), f"Expected unsourced violation, got {r.violations}"
+
+    # But date components themselves should be allowed
+    r2 = check("2026년 9월 1일 입고 예정입니다.", res, domain)
+    assert r2.ok, f"Expected ok=True, got violations: {r2.violations}"

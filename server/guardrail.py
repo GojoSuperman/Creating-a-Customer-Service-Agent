@@ -54,10 +54,22 @@ def allowed_numbers(tool_results: dict, domain: Domain) -> tuple[set[int], set[i
         elif isinstance(v, list):
             allowed.update(x for x in v if isinstance(x, int))
     tool_nums: set[int] = set()
+    date_components: set[int] = set()
     for r in (tool_results or {}).values():
         tool_nums |= numbers_in(r)
+        # Extract ISO date tokens and add their components to allowed set,
+        # but exclude them from arithmetic base to prevent spurious derived numbers
+        if isinstance(r, dict):
+            text = json.dumps(r, ensure_ascii=False)
+            for match in re.finditer(r"\d{4}-\d{2}-\d{2}", text):
+                date_str = match.group()
+                parts = date_str.split("-")
+                for p in parts:
+                    date_components.add(int(p))
     allowed |= tool_nums
-    base = sorted(allowed)
+    allowed |= date_components
+    # Build base for arithmetic, but exclude date components
+    base = sorted(allowed - date_components)
     for a in base:
         for b in base:
             if a > b:
@@ -92,13 +104,20 @@ def check(answer: str, tool_results: dict, domain: Domain, min_check: int = 1000
         if "get_shipping_policy" not in (tool_results or {}):
             violations.append({"type": VIOLATION_NO_TOOL,
                                "detail": "무료배송 기준액을 get_shipping_policy 조회 없이 단정"})
-    hedged = re.search(UNCONFIRMED_HEDGE, answer) is not None
+
+    # Split answer into sentences and check hedges per-sentence
+    sentences = re.split(r"[.。?!\n]+", answer)
     for fld in _unconfirmed_fields(tool_results):
         for pat in ASSERTION_PATTERNS.get(fld, []):
-            if re.search(pat, answer) and not hedged:
-                violations.append({"type": VIOLATION_ASSERT_UNCONFIRMED,
-                                   "detail": f"{fld} 가 미확정인데 확답 패턴 발견: /{pat}/"})
-                break
+            for sentence in sentences:
+                # Check if this sentence contains the assertion pattern
+                if re.search(pat, sentence):
+                    # Only treat as hedged if hedge is in the SAME sentence
+                    is_hedged = re.search(UNCONFIRMED_HEDGE, sentence) is not None
+                    if not is_hedged:
+                        violations.append({"type": VIOLATION_ASSERT_UNCONFIRMED,
+                                           "detail": f"{fld} 가 미확정인데 확답 패턴 발견: /{pat}/"})
+                        break
     return GuardResult(ok=not violations, violations=violations,
                        numbers_in_answer=sorted(found), from_tools=sorted(tool_nums))
 
