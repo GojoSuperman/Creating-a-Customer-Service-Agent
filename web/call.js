@@ -1,5 +1,5 @@
 // 전화 상태 머신. IDLE → RINGING → SPEAKING ⇄ LISTENING → THINKING → ... → ENDED
-import { createVoice } from "./voice.js";
+import { createVoice, preferredVoice, rememberVoice } from "./voice.js";
 import { createPanel } from "./panel.js";
 
 const $ = (id) => document.getElementById(id);
@@ -138,7 +138,7 @@ $("text-form").onsubmit = (e) => {
   sendTurn(t);
 };
 $("engine-select").onchange = (e) => { voice.setMode(e.target.value); $("voice-select").disabled = e.target.value === "server"; };
-$("voice-select").onchange = (e) => { const v = voice.listVoices()[e.target.value]; if (v) voice.setVoice(v); };
+$("voice-select").onchange = (e) => { const v = voice.listVoices()[e.target.value]; if (v) { voice.setVoice(v); rememberVoice(v); } };
 
 // 초기화
 (async () => {
@@ -149,8 +149,10 @@ $("voice-select").onchange = (e) => { const v = voice.listVoices()[e.target.valu
   if (!voice.supported.recognition) enableTextOnly("이 브라우저는 음성 인식을 지원하지 않습니다. 크롬 또는 엣지를 권장합니다.");
   const fill = () => {
     const vs = voice.listVoices();
-    const cur = vs.findIndex(v => /natural|online/i.test(v.name));
-    $("voice-select").innerHTML = vs.map((v, i) => `<option value="${i}" ${i === (cur >= 0 ? cur : 0) ? "selected" : ""}>${v.name}</option>`).join("");
+    const pref = preferredVoice(vs);
+    const cur = pref ? vs.indexOf(pref) : 0;
+    if (pref) voice.setVoice(pref);
+    $("voice-select").innerHTML = vs.map((v, i) => `<option value="${i}" ${i === cur ? "selected" : ""}>${v.name}</option>`).join("");
   };
   fill(); if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = fill;
   setPhase("IDLE");

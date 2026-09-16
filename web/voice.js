@@ -2,6 +2,18 @@
 // Web Speech API (크롬·엣지). 서버 TTS로 바꿀 때는 이 파일만 교체한다.
 // 화면에는 "O-1001" 그대로 보여 주되, 읽을 때는 "오 다시 일 공 공 일"처럼 한 자리씩 한국어로 읽는다.
 // TTS 가 알파벳 O 를 영어로 발음하는 것을 막고, 전화에서 숫자를 또박또박 전달하기 위함이다.
+// 기본 목소리 선호 순서: 사용자가 마지막에 고른 것 > 크롬의 "Google 한국의" > 엣지의 Natural/Online > 아무 한국어
+const VOICE_PREF_KEY = "modumall.voice";
+export function preferredVoice(koVoices) {
+  let saved = null;
+  try { saved = localStorage.getItem(VOICE_PREF_KEY); } catch (_) {}
+  return (saved && koVoices.find(v => v.name === saved))
+      || koVoices.find(v => /google/i.test(v.name))
+      || koVoices.find(v => /natural|online/i.test(v.name))
+      || null;
+}
+export function rememberVoice(v) { try { localStorage.setItem(VOICE_PREF_KEY, v.name); } catch (_) {} }
+
 const KO_DIGITS = "공일이삼사오육칠팔구";
 const LETTER_KO = { O: "오", R: "알", P: "피" };
 export function speakable(text) {
@@ -23,9 +35,7 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {} } = {}) {
   function pickVoice() {
     const all = synth ? synth.getVoices() : [];
     const ko = all.filter(v => v.lang && v.lang.toLowerCase().startsWith("ko"));
-    // 엣지가 제공하는 신경망 음성(Natural / Online)이 있으면 그것을 먼저 고른다 — 무료이고 발음이 훨씬 낫다
-    const natural = ko.find(v => /natural|online/i.test(v.name));
-    return natural || ko[0] || all[0] || null;
+    return preferredVoice(ko) || ko[0] || all[0] || null;
   }
   if (synth) {
     voice = pickVoice();
