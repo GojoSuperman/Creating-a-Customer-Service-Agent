@@ -19,12 +19,19 @@
       <input id="text-input" type="text" placeholder="말하기 대신 입력하려면 여기에 쓰고 Enter" autocomplete="off">
     </form>
     <div class="controls">
-      <button id="btn-call" class="call">📞 전화 걸기</button>
-      <button id="btn-hangup" class="hangup">끊기</button>
-      <label class="caller">고객 <select id="sample-select"><option value="">비회원(번호 없음)</option><option value="__manual">번호 직접 입력…</option></select></label>
-      <input id="phone-input" type="tel" placeholder="010-0000-0000" autocomplete="off" hidden>
-      <label class="voice">음성 <select id="engine-select"><option value="browser">브라우저</option><option value="server">OpenAI</option></select></label>
-      <label class="voice">목소리 <select id="voice-select"></select></label>
+      <div class="row row-call">
+        <label class="field grow">
+          <span>고객</span>
+          <select id="sample-select"><option value="">비회원(번호 없음)</option><option value="__manual">번호 직접 입력…</option></select>
+        </label>
+        <input id="phone-input" type="tel" placeholder="010-0000-0000" autocomplete="off" hidden>
+        <button id="btn-call" class="call">📞 전화 걸기</button>
+        <button id="btn-hangup" class="hangup">끊기</button>
+      </div>
+      <div class="row row-voice">
+        <label class="field"><span>음성</span><select id="engine-select"><option value="browser">브라우저</option><option value="server">OpenAI</option></select></label>
+        <label class="field grow"><span>목소리</span><select id="voice-select"></select></label>
+      </div>
     </div>
   </section>
   <aside class="admin">

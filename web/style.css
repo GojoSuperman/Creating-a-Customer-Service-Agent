@@ -11,18 +11,25 @@ body { margin:0; background:var(--bg); color:var(--ink); font-family:"Noto Sans 
 .bubble.agent { background:#243042; align-self:flex-start }
 .bubble.customer { background:#1f5d3a; align-self:flex-end }
 .bubble.system { color:var(--muted); font-size:.85em; align-self:center; text-align:center }
-.caller { display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:.85em; white-space:nowrap }
-.caller select { max-width:190px; font-size:1em }
-#phone-input { padding:6px 10px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--ink); width:140px }
 .interim { min-height:1.6em; padding:0 20px; color:var(--muted); font-style:italic }
 .text-form { padding:8px 20px }
 .text-form input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink) }
-.controls { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; padding:12px 20px 20px; border-top:1px solid var(--line) }
-button { padding:12px 18px; border:none; border-radius:999px; font-size:1em; cursor:pointer; color:#fff; white-space:nowrap; flex:0 0 auto }
+.controls { display:flex; flex-direction:column; gap:10px; padding:12px 20px 18px; border-top:1px solid var(--line) }
+.controls .row { display:flex; align-items:center; gap:10px }
+.row-voice { padding-top:10px; border-top:1px dashed var(--line) }
+.field { display:flex; align-items:center; gap:8px; min-width:0; color:var(--muted); font-size:.85em; white-space:nowrap }
+.field.grow { flex:1 1 auto }
+.field span { flex:0 0 auto }
+select, #phone-input { height:38px; padding:0 34px 0 12px; border-radius:8px; border:1px solid var(--line); background:var(--paper); color:var(--ink);
+  font-size:.95em; font-family:inherit; min-width:0; appearance:none; -webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%238b93a0' stroke-width='2'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 12px center }
+.field.grow select { width:100% }
+select:focus, #phone-input:focus { outline:none; border-color:var(--accent) }
+select:disabled { opacity:.5 }
+#phone-input { padding-right:12px; background-image:none; width:150px; flex:0 0 auto }
+button { height:40px; padding:0 20px; border:none; border-radius:999px; font-size:.95em; font-weight:600; cursor:pointer; color:#fff; white-space:nowrap; flex:0 0 auto }
 .call { background:var(--accent) } .hangup { background:var(--bad) }
-.voice { display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:.85em; white-space:nowrap }
-.voice:first-of-type { margin-left:auto }
-.voice select { max-width:140px; font-size:1em }
 body[data-phase="IDLE"] .hangup, body[data-phase="ENDED"] .hangup { display:none }
 body:not([data-phase="IDLE"]):not([data-phase="ENDED"]) .call { display:none }
 body[data-phase="LISTENING"] header { box-shadow: inset 0 -3px 0 var(--accent) }
