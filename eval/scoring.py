@@ -88,3 +88,29 @@ def score_regression(expect: dict, answer: str, action: str) -> tuple:
         if norm_num(normalize_korean_myriad(f)) in a:
             fails.append(f'forbid 위반: "{f}"')
     return (not fails), fails
+
+
+_KIND_PREFIX = (("action:", "action"), ("tools 미호출:", "tools 미호출"), ("must 누락:", "must 누락"),
+                ("forbid 위반:", "forbid 위반"), ("ASK 인데", "ASK 형식"))
+
+
+def fail_kinds(fails: list) -> list:
+    """score_turn 실패 문자열을 사유 종류 5가지로 분류한다. 리포트의 사유 분포에 쓴다."""
+    kinds = []
+    for f in fails:
+        for prefix, kind in _KIND_PREFIX:
+            if f.startswith(prefix):
+                kinds.append(kind)
+                break
+    return kinds
+
+
+def missing_must(fails: list) -> list:
+    """'must 누락: "X"' 문자열에서 X 만 뽑는다."""
+    return [m.group(1) for f in fails for m in [re.match(r'must 누락: "(.*)"$', f)] if m]
+
+
+def needs_judge(fails: list) -> bool:
+    """규칙 실패가 must 누락뿐일 때만 judge 대상이다. action·tools·forbid·ASK 형식 실패는 judge 로 완화하지 않는다."""
+    kinds = fail_kinds(fails)
+    return bool(kinds) and all(k == "must 누락" for k in kinds)

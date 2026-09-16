@@ -23,6 +23,7 @@ class Settings:
     clarify_max: int
     tts_model: str = ""
     tts_voice: str = "nova"
+    judge_model: str = "gpt-4.1-mini"
 
 
 def load_settings() -> Settings:
@@ -38,4 +39,5 @@ def load_settings() -> Settings:
         clarify_max=int(os.environ.get("CLARIFY_MAX", "1")),
         tts_model=os.environ.get("TTS_MODEL", ""),
         tts_voice=os.environ.get("TTS_VOICE", "nova"),
+        judge_model=os.environ.get("JUDGE_MODEL", "gpt-4.1-mini"),
     )

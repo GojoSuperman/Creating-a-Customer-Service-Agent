@@ -91,3 +91,22 @@ def test_score_turn_must_normalizes_korean_myriad():
     ok, fails = score_turn({"action": "ANSWER", "tools": [], "must": ["40000"], "forbid": []},
                            "4만 원 이상 구매하시면 무료배송입니다.", [], "ANSWER")
     assert ok, fails
+
+
+from eval.scoring import fail_kinds, missing_must, needs_judge
+
+
+def test_fail_kinds_maps_each_prefix():
+    fails = ['action: 기대 ANSWER != 실제 ASK', "tools 미호출: ['get_shipping_policy']",
+             'must 누락: "2500"', 'forbid 위반: "40000"', "ASK 인데 되묻는 문장이 아님"]
+    assert fail_kinds(fails) == ["action", "tools 미호출", "must 누락", "forbid 위반", "ASK 형식"]
+
+
+def test_missing_must_extracts_strings():
+    assert missing_must(['must 누락: "2500"', 'must 누락: "품절"', 'action: x']) == ["2500", "품절"]
+
+
+def test_needs_judge_only_when_all_fails_are_must():
+    assert needs_judge(['must 누락: "2500"', 'must 누락: "품절"']) is True
+    assert needs_judge(['must 누락: "2500"', "tools 미호출: ['x']"]) is False
+    assert needs_judge([]) is False
