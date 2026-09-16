@@ -3,6 +3,9 @@
 
 agent 노드가 도구를 요청하면 tools 노드로 갔다가 다시 agent 로 돌아온다.
 돌아오는 화살표가 곧 루프이고, 상한은 recursion_limit 으로 건다.
+
+같은 도구가 한 턴 안에서 여러 번 불리면 결과 dict 에서 첫 번째는 도구명 그대로,
+두 번째부터는 `f"{name}#2"`, `f"{name}#3"`, … 키로 보존한다 (덮어쓰지 않는다).
 """
 import json
 import uuid
@@ -10,7 +13,7 @@ from typing import Annotated, Optional, TypedDict
 
 from langchain.tools import tool
 from langgraph.errors import GraphRecursionError
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
@@ -65,7 +68,13 @@ class Answerer:
         return g.compile()
 
     def answer(self, question: str, route: str, history: Optional[list[str]] = None):
-        """(답변 텍스트, {도구명: 결과}, [{"name", "args"}] 호출 순서) 를 돌려준다."""
+        """(답변 텍스트, {도구명: 결과}, [{"name", "args"}] 호출 순서) 를 돌려준다.
+
+        같은 도구가 한 턴 안에서 여러 번 불리면 결과가 서로 덮어쓰지 않도록 첫 번째
+        결과는 도구명 그대로(`results[name]`), 두 번째부터는 `f"{name}#2"`, `f"{name}#3"`, …
+        키로 보존한다. 가드레일이 `results.values()` 에서 허용 숫자 집합을 뽑기 때문에,
+        여기서 덮어써 버리면 앞선 호출의 숫자가 근거 없는 값으로 오판된다.
+        """
         full_q = " ".join((history or []) + [question])
         init = {"messages": [("system", build_answer_prompt(self.domain, route)), ("human", full_q)]}
         calls: list[dict] = []
@@ -74,16 +83,21 @@ class Answerer:
         except GraphRecursionError:
             return self.domain.escalate_message, {}, calls
         results: dict = {}
+        seen_counts: dict[str, int] = {}
         for m in out["messages"]:
             for tc in getattr(m, "tool_calls", None) or []:
                 calls.append({"name": tc["name"], "args": tc["args"]})
             if getattr(m, "name", None) in self.tools:
                 content = m.content
                 if isinstance(content, (dict, list)):
-                    results[m.name] = content
+                    value = content
                 else:
                     try:
-                        results[m.name] = json.loads(content)
+                        value = json.loads(content)
                     except (json.JSONDecodeError, TypeError):
-                        results[m.name] = content
+                        value = content
+                seen_counts[m.name] = seen_counts.get(m.name, 0) + 1
+                n = seen_counts[m.name]
+                key = m.name if n == 1 else f"{m.name}#{n}"
+                results[key] = value
         return out["messages"][-1].content, results, calls

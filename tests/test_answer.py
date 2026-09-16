@@ -54,6 +54,21 @@ def test_recursion_limit_escalates(domain):
     assert results == {}
 
 
+def test_repeated_tool_calls_are_all_kept(domain):
+    llm = scripted_llm([
+        AIMessage(content="", tool_calls=[{"name": "get_shipping_policy", "id": "c1",
+                                           "args": {"product_id": "P4001"}}]),
+        AIMessage(content="", tool_calls=[{"name": "get_shipping_policy", "id": "c2",
+                                           "args": {"product_id": "P6001"}}]),
+        AIMessage(content="확인했습니다."),
+    ])
+    a = Answerer(domain, llm=llm, max_tool_turns=3)
+    text, results, calls = a.answer("두 상품 배송비 알려주세요", "SHIPPING")
+    assert results["get_shipping_policy"]["product_id"] == "P4001"
+    assert results["get_shipping_policy#2"]["product_id"] == "P6001"
+    assert len(calls) == 2
+
+
 def test_history_is_prepended(domain):
     seen = {}
     def capture(messages):
