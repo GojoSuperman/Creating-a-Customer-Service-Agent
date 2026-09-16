@@ -40,7 +40,7 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 .venv/bin/python -m eval.eval_router --rule      # 규칙 기준선 (키 불필요)
 .venv/bin/python -m eval.eval_router             # LLM 라우터 120건
 .venv/bin/python -m eval.eval_hard --rule        # 어려운 케이스 72건, 되묻기 정책 비교 (키 불필요)
-.venv/bin/python -m eval.eval_answer             # 정답셋 첫 턴 34건 중 자동 판정 가능한 32건  # --runs 3 으로 플랩 감지
+.venv/bin/python -m eval.eval_answer --workers 1 # 정답셋 첫 턴 34건 중 자동 판정 가능한 32건 (--runs 3 플랩 감지; gpt-4.1 TPM 30k 한도라 workers 1 권장)
 .venv/bin/python -m eval.eval_regression --runs 3   # 인젝션·없는 ID 회귀 스위트 (키 필요)
 .venv/bin/pytest -q                              # 단위 테스트 (키 불필요)
 ```
@@ -50,7 +50,7 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 | # | 바꾼 것 | 라우팅 macro F1 | 답변 통과율 | 회귀 통과 | 메모 |
 |---|---|---|---|---|---|
 | 0 | 기준선 (규칙 라우터) | 0.677 | – | – | 정확도 0.583 |
-| 1 | LLM 라우터 | | | | |
+| 1 | LLM 라우터 (gpt-4.1-mini) + 답변 gpt-4.1 | 0.945 | (측정 중) | 6/6 PASS ×3회 | 정확도 0.933, ECE 0.039 · hard 72건 자동처리 0.611, 경계모호 15건 전부 확신 처리(위험) |
 
 ## 수동 검증 체크리스트
 

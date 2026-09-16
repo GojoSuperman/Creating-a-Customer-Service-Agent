@@ -56,7 +56,7 @@ def make_rule_classifier() -> Callable[[str], RouteDecision]:
 def make_llm_classifier(domain: Domain, model: str) -> Callable[[str], RouteDecision]:
     from langchain.chat_models import init_chat_model
     guide = build_route_guide(domain)
-    chain = init_chat_model(model, temperature=0, timeout=60, max_retries=2) \
+    chain = init_chat_model(model, temperature=0, timeout=60, max_retries=8) \
         .with_structured_output(RouteDecision)
 
     def classify(question: str) -> RouteDecision:

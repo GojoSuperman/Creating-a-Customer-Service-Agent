@@ -45,7 +45,7 @@ class Answerer:
             if model is None:
                 raise ValueError("model 또는 llm 중 하나는 있어야 합니다")
             from langchain.chat_models import init_chat_model
-            llm = init_chat_model(model, temperature=0, timeout=60, max_retries=2).bind_tools(self.lc_tools)
+            llm = init_chat_model(model, temperature=0, timeout=60, max_retries=8).bind_tools(self.lc_tools)
         self.llm = llm
         self.graph = self._build()
 
