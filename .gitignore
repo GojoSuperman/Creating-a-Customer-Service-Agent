@@ -7,3 +7,6 @@ __pycache__/
 logs/
 .pytest_cache/
 .bkit/
+domains/*/*.db
+domains/*/*.db-*
+domains/*/*.db.tmp*

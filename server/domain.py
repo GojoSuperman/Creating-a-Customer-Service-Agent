@@ -41,6 +41,7 @@ class Domain:
     path: Path
     clarify_message: str
     search: dict
+    db_path: Path
 
 
 def load_domain(path: Path) -> Domain:
@@ -81,6 +82,9 @@ def load_domain(path: Path) -> Domain:
         if unknown:
             raise DomainError(f"search.aliases['{alias}'] 에 없는 상품 ID: {unknown}")
 
+    from server.db.generate import generate
+    db_path = generate(path)  # 없으면 만들고, 있으면 그대로
+
     domain = Domain(
         name=cfg["name"],
         greeting=cfg["greeting"],
@@ -96,6 +100,7 @@ def load_domain(path: Path) -> Domain:
         path=path,
         clarify_message=clarify,
         search=search,
+        db_path=db_path,
     )
 
     # server.context 가 Domain 을 import 하므로 모듈 최상단에서 맞물리면 순환 import가
