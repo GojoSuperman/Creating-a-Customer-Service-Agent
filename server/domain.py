@@ -39,6 +39,7 @@ class Domain:
     policy_text: str
     mockdb: dict
     path: Path
+    clarify_message: str
 
 
 def load_domain(path: Path) -> Domain:
@@ -66,6 +67,11 @@ def load_domain(path: Path) -> Domain:
     if missing_db:
         raise DomainError(f"mockdb.json 에 키가 없습니다: {missing_db}")
 
+    clarify = cfg.get("clarify_message")
+    if not clarify:
+        labels = ", ".join(routes[k].label for k in ROUTES if k != "OTHER")
+        clarify = f"죄송하지만 정확히 확인해 드리기 위해 여쭤봅니다. {labels} 중 어떤 문의이신지 말씀해 주시겠어요?"
+
     domain = Domain(
         name=cfg["name"],
         greeting=cfg["greeting"],
@@ -79,6 +85,7 @@ def load_domain(path: Path) -> Domain:
         policy_text=(path / "policy.md").read_text(encoding="utf-8"),
         mockdb=mockdb,
         path=path,
+        clarify_message=clarify,
     )
 
     # server.context 가 Domain 을 import 하므로 모듈 최상단에서 맞물리면 순환 import가

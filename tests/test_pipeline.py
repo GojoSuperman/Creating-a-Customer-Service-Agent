@@ -14,7 +14,7 @@ def domain(modumall_dir):
 def settings(tmp_path, modumall_dir):
     return Settings(router_model="x", answer_model="x", conf_threshold=0.5, max_tool_turns=3,
                     guardrail_retry=1, domain="modumall", domains_root=modumall_dir.parent,
-                    logs_dir=tmp_path / "logs")
+                    logs_dir=tmp_path / "logs", clarify_max=1)
 
 
 class FakeAnswerer:
@@ -47,8 +47,11 @@ def test_answer_path(domain, settings):
 
 
 def test_escalate_path_ends_call(domain, settings):
+    # clarify_max=1 이므로 확신도 미달은 먼저 한 번 되묻고, 두 번째부터 이관한다.
     p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.2), answerer=FakeAnswerer([]))
-    r = p.turn(p.start_call(), "그거요")
+    cid = p.start_call()
+    p.turn(cid, "그거요")
+    r = p.turn(cid, "그거요")
     assert r.action == "ESCALATE" and r.end_call and r.answer == domain.escalate_message
 
 
@@ -139,3 +142,36 @@ def test_ask_after_retry_clears_stale_guardrail(domain, settings):
     p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
     r = p.turn(p.start_call(), "P4001 무료배송?")
     assert r.action == "ASK" and r.guardrail is None
+
+
+def test_low_confidence_asks_once_then_escalates(domain, settings):
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.2), answerer=FakeAnswerer([]))
+    cid = p.start_call()
+    r1 = p.turn(cid, "그거요")
+    assert r1.action == "ASK" and not r1.end_call
+    assert r1.answer == domain.clarify_message
+    r2 = p.turn(cid, "음")
+    assert r2.action == "ESCALATE" and r2.end_call
+
+
+def test_clarify_disabled_escalates_immediately(domain, modumall_dir, tmp_path):
+    s = Settings(router_model="x", answer_model="x", conf_threshold=0.5, max_tool_turns=3,
+                 guardrail_retry=1, domain="modumall", domains_root=modumall_dir.parent,
+                 logs_dir=tmp_path / "logs", clarify_max=0)
+    p = Pipeline(domain, s, router=router_with(domain, "SHIPPING", 0.2), answerer=FakeAnswerer([]))
+    r = p.turn(p.start_call(), "그거요")
+    assert r.action == "ESCALATE" and r.end_call
+
+
+def test_clarify_count_is_per_call(domain, settings):
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.2), answerer=FakeAnswerer([]))
+    a, b = p.start_call(), p.start_call()
+    assert p.turn(a, "x").action == "ASK"
+    assert p.turn(b, "x").action == "ASK"      # 다른 통화는 카운트가 따로다
+    assert p.turn(a, "y").action == "ESCALATE"
+
+
+def test_clarify_message_default_lists_route_labels(domain):
+    for name, r in domain.routes.items():
+        if name != "OTHER":
+            assert r.label in domain.clarify_message

@@ -20,6 +20,7 @@ class Settings:
     domain: str
     domains_root: Path
     logs_dir: Path
+    clarify_max: int
 
 
 def load_settings() -> Settings:
@@ -32,4 +33,5 @@ def load_settings() -> Settings:
         domain=os.environ.get("DOMAIN", "modumall"),
         domains_root=ROOT / "domains",
         logs_dir=ROOT / "logs",
+        clarify_max=int(os.environ.get("CLARIFY_MAX", "1")),
     )

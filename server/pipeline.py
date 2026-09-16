@@ -52,6 +52,7 @@ class AgentState(TypedDict, total=False):
     answer: str
     guardrail: Optional[dict]
     attempts: int
+    clarify_count: int
 
 
 @dataclass
@@ -93,8 +94,14 @@ class Pipeline:
         hist = (state.get("history") or [])[-2:]
         q = " ".join(hist + [state["question"]])
         r = self.router.invoke({"question": q})
-        return {"route": r["route"], "confidence": r["confidence"], "action": r["action"],
+        base = {"route": r["route"], "confidence": r["confidence"], "action": r["action"],
                 "attempts": 0, "tools": [], "results": {}, "guardrail": None}
+        count = state.get("clarify_count", 0)
+        if r["action"] == "ESCALATE" and count < self.settings.clarify_max:
+            # 확신도 미달을 곧바로 이관하지 않고 한 번 되묻는다 (cs-chatbot-design 의 2단계 fallback)
+            base.update({"action": "ASK", "answer": self.domain.clarify_message,
+                         "clarify_count": count + 1, "history": [state["question"]]})
+        return base
 
     def _node_answer(self, state: AgentState) -> AgentState:
         guardrail_state = state.get("guardrail")
@@ -134,7 +141,9 @@ class Pipeline:
 
     # ── 분기 ──────────────────────────────────────────────
     def _after_route(self, state: AgentState) -> str:
-        return "answer" if state["action"] == "HANDLE" else "escalate"
+        if state["action"] == "HANDLE":
+            return "answer"
+        return END if state["action"] == "ASK" else "escalate"
 
     def _after_answer(self, state: AgentState) -> str:
         if state["action"] == "ASK":
@@ -153,7 +162,7 @@ class Pipeline:
         g.add_node("guard", self._node_guard)
         g.add_node("escalate", self._node_escalate)
         g.add_edge(START, "route")
-        g.add_conditional_edges("route", self._after_route, {"answer": "answer", "escalate": "escalate"})
+        g.add_conditional_edges("route", self._after_route, {"answer": "answer", "escalate": "escalate", END: END})
         g.add_conditional_edges("answer", self._after_answer, {"guard": "guard", "escalate": "escalate", END: END})
         g.add_conditional_edges("guard", self._after_guard, {"answer": "answer", "escalate": "escalate", END: END})
         g.add_edge("escalate", END)
