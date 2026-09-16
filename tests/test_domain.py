@@ -43,6 +43,27 @@ def test_routes_must_be_exactly_five(tmp_path, modumall_dir):
     assert "OTHER" in str(e.value)
 
 
+def test_search_key_is_optional(tmp_path, modumall_dir):
+    for f in ["policy.md", "mockdb.json"]:
+        (tmp_path / f).write_bytes((modumall_dir / f).read_bytes())
+    cfg = json.loads((modumall_dir / "domain.json").read_text(encoding="utf-8"))
+    cfg.pop("search", None)
+    (tmp_path / "domain.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    d = load_domain(tmp_path)
+    assert d.search == {"synonyms": {}, "aliases": {}}
+
+
+def test_search_alias_ids_must_exist(tmp_path, modumall_dir):
+    for f in ["policy.md", "mockdb.json"]:
+        (tmp_path / f).write_bytes((modumall_dir / f).read_bytes())
+    cfg = json.loads((modumall_dir / "domain.json").read_text(encoding="utf-8"))
+    cfg["search"] = {"aliases": {"유령": ["P0000"]}}
+    (tmp_path / "domain.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(DomainError) as e:
+        load_domain(tmp_path)
+    assert "P0000" in str(e.value)
+
+
 def test_missing_always_section_is_explicit(tmp_path, modumall_dir):
     # always_sections 가 매뉴얼에 없는 장(章)을 가리키면 조용히 빠지는 대신 즉시 터진다.
     (tmp_path / "mockdb.json").write_bytes((modumall_dir / "mockdb.json").read_bytes())

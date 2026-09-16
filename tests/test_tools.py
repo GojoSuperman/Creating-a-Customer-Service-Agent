@@ -90,6 +90,37 @@ def test_search_product_no_hit(tools):
     assert r["resolved_product_id"] is None
 
 
+def test_alias_single_resolves(tools):
+    r = tools["search_product"]("원피스")
+    assert r["resolved_product_id"] == "P3002" and r["category_query"] is True
+
+
+def test_alias_multi_is_ambiguous(tools):
+    r = tools["search_product"]("신발")
+    assert r["ambiguous"] is True and r["category_query"] is True
+    assert {c["product_id"] for c in r["candidates"]} == {"P4001", "P4002"}
+
+
+def test_synonym_maps_to_product(tools):
+    r = tools["search_product"]("운동화")
+    assert r["resolved_product_id"] == "P4002"
+
+
+def test_not_in_catalog(tools):
+    r = tools["search_product"]("청바지")
+    assert r["candidates"] == [] and r["not_in_catalog"] is True
+
+
+def test_alias_inside_sentence(tools):
+    r = tools["search_product"]("가방 하나 사려는데요")
+    assert r["resolved_product_id"] == "P6002"
+
+
+def test_existing_name_search_unchanged(tools):
+    r = tools["search_product"]("캔버스화")
+    assert r["resolved_product_id"] == "P4001" and r["category_query"] is False
+
+
 def test_find_identifiers():
     assert find_identifiers("O-1006 반품 배송비 누가 내요?") == {"product_id": None, "order_id": "O-1006"}
     assert find_identifiers("P4001 배송비") == {"product_id": "P4001", "order_id": None}

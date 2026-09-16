@@ -55,6 +55,12 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
     categories = db["categories"]
     same_day = db["same_day_delivery"]
     base_fee = domain.fixed_values["base_shipping_fee"]
+    synonyms = domain.search["synonyms"]
+    aliases = domain.search["aliases"]
+
+    def _candidates_for_ids(ids, score=1.0):
+        return [{"product_id": pid, "name": products[pid]["name"], "category": products[pid]["category"],
+                 "price": products[pid]["price"], "score": score} for pid in ids]
 
     def search_product(query: str) -> dict:
         """상품명 일부로 상품을 찾는다. 상품 ID를 모를 때 가장 먼저 부르는 도구다.
@@ -63,7 +69,29 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
         """
         qt = _toks(query)
         if not qt:
-            return {"query": query, "candidates": [], "resolved_product_id": None, "ambiguous": False}
+            return {"query": query, "candidates": [], "resolved_product_id": None, "ambiguous": False,
+                    "category_query": False, "not_in_catalog": False}
+        # 1) 동의어 치환. 값이 None 이면 취급하지 않는 범주다
+        tokens = []
+        for t in qt:
+            if t in synonyms:
+                if synonyms[t] is None:
+                    return {"query": query, "candidates": [], "resolved_product_id": None,
+                            "ambiguous": False, "category_query": False, "not_in_catalog": True,
+                            "note": "취급하지 않는 상품입니다."}
+                tokens.append(synonyms[t].replace(" ", ""))
+            else:
+                tokens.append(t)
+        qt = tokens
+        # 2) 범주어 사전. 문장 속 어디에 있어도 잡는다
+        for t in qt:
+            if t in aliases:
+                ids = aliases[t]
+                cands = _candidates_for_ids(ids)
+                return {"query": query, "candidates": cands,
+                        "resolved_product_id": ids[0] if len(ids) == 1 else None,
+                        "ambiguous": len(ids) > 1, "category_query": True, "not_in_catalog": False,
+                        "note": "범주 질의입니다. 후보 중 어느 상품인지 고객에게 확인하십시오." if len(ids) > 1 else None}
         flat_q = query.replace(" ", "")
         hits = []
         for pid, p in products.items():
@@ -85,7 +113,8 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
         ambiguous = len(top) > 1
         return {"query": query, "candidates": hits[:5],
                 "resolved_product_id": top[0]["product_id"] if len(top) == 1 else None,
-                "ambiguous": ambiguous,
+                "ambiguous": ambiguous, "category_query": False,
+                "not_in_catalog": not hits,
                 "note": "후보가 여러 개입니다. 어느 상품인지 고객에게 확인하십시오." if ambiguous else None}
 
     def get_order_status(order_id: str) -> dict:
