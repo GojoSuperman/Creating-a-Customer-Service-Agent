@@ -1,4 +1,4 @@
-// 음성 인식·합성 모듈. listen / speak / stop 세 함수만 노출한다.
+// 음성 인식·합성 모듈. listen / speak / stop 과 supported / listVoices / setVoice 를 노출한다.
 // Web Speech API (크롬·엣지). 서버 TTS로 바꿀 때는 이 파일만 교체한다.
 export function createVoice({ lang = "ko-KR", onInterim = () => {} } = {}) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;

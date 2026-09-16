@@ -17,7 +17,8 @@ class FakePipeline:
         if call_id not in self.calls:
             raise KeyError(call_id)
         return TurnResult(answer=f"응답:{text}", route="SHIPPING", confidence=0.9, action="ANSWER",
-                          tools=[], guardrail={"ok": True, "violations": []}, elapsed_ms=5, end_call=False)
+                          tools=[], guardrail={"ok": True, "violations": []}, elapsed_ms=5, end_call=False,
+                          attempts=1)
 
 
 class BrokenPipeline(FakePipeline):

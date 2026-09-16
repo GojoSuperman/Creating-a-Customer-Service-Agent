@@ -40,6 +40,7 @@ def test_answer_path(domain, settings):
     r = p.turn(cid, "P4001 무료배송 되나요?")
     assert r.action == "ANSWER" and r.route == "SHIPPING" and r.guardrail["ok"] and not r.end_call
     assert r.tools[0]["name"] == "get_shipping_policy"
+    assert r.attempts == 1
 
 
 def test_escalate_path_ends_call(domain, settings):
@@ -85,6 +86,7 @@ def test_guardrail_retry_succeeds(domain, settings):
     p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
     r = p.turn(p.start_call(), "P4001 무료배송?")
     assert r.action == "ANSWER" and r.guardrail["ok"]
+    assert r.attempts == 2
 
 
 def test_history_carries_across_turns(domain, settings):

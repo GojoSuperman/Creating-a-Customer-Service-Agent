@@ -3,7 +3,7 @@ import { createVoice } from "./voice.js";
 import { createPanel } from "./panel.js";
 
 const $ = (id) => document.getElementById(id);
-const state = { phase: "IDLE", callId: null, startedAt: null, turns: 0, textOnly: false, timer: null };
+const state = { phase: "IDLE", callId: null, startedAt: null, turns: 0, textOnly: false, timer: null, gen: 0, busy: false };
 const voice = createVoice({ onInterim: (t) => { $("interim").textContent = t; } });
 const panel = createPanel($("panel"));
 
@@ -35,6 +35,7 @@ function addBubble(who, text) {
 }
 
 async function startCall() {
+  state.gen += 1;
   panel.clear(); $("transcript").innerHTML = ""; state.turns = 0;
   setPhase("RINGING");
   await playRing(1500);
@@ -58,22 +59,27 @@ async function listenLoop() {
   if (state.phase === "ENDED") return;
   if (state.textOnly) { setPhase("LISTENING"); return; }   // 텍스트 입력을 기다린다
   setPhase("LISTENING");
+  const gen = state.gen;
   let text = "";
   try { text = await voice.listen(); }
   catch (e) {
+    if (gen !== state.gen || state.phase !== "LISTENING") return;
     if (e.message === "not-allowed" || e.message === "unsupported") { enableTextOnly("마이크를 쓸 수 없어 텍스트 입력으로 전환했습니다."); return; }
     // no-speech 등은 다시 듣는다
     return listenLoop();
   }
+  if (gen !== state.gen || state.phase !== "LISTENING") return;
   $("interim").textContent = "";
   if (!text) return listenLoop();
   await sendTurn(text);
 }
 
 async function sendTurn(text) {
-  if (state.phase === "ENDED" || !state.callId) return;
+  if (state.busy || state.phase === "ENDED" || !state.callId) return;
+  state.busy = true;
   addBubble("customer", text);
   setPhase("THINKING");
+  const gen = state.gen;
   const filler = setTimeout(() => { if (state.phase === "THINKING" && !state.textOnly) voice.speak("잠시만 확인해 드리겠습니다."); }, 1500);
   let r;
   try {
@@ -83,18 +89,24 @@ async function sendTurn(text) {
     r = await res.json();
   } catch (e) {
     clearTimeout(filler);
+    if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
     addBubble("system", String(e.message));
+    state.busy = false;
     return listenLoop();
   }
   clearTimeout(filler);
+  if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
   state.turns += 1;
   panel.addTurn(text, r);
   await say(r.answer);
-  if (r.end_call) return endCall("에이전트가 통화를 종료했습니다");
+  if (r.end_call) { state.busy = false; return endCall("에이전트가 통화를 종료했습니다"); }
+  state.busy = false;
   listenLoop();
 }
 
 function endCall(reason = "통화를 끊었습니다") {
+  state.gen += 1;
+  state.busy = false;
   voice.stop();
   clearInterval(state.timer);
   setPhase("ENDED");
@@ -116,6 +128,7 @@ $("text-form").onsubmit = (e) => {
   e.preventDefault();
   const t = $("text-input").value.trim();
   if (!t || !state.callId) return;
+  if (!(state.phase === "LISTENING" && !state.busy)) return;
   $("text-input").value = "";
   voice.stop();
   sendTurn(t);

@@ -44,6 +44,7 @@ class TurnResult:
     guardrail: Optional[dict]
     elapsed_ms: int
     end_call: bool
+    attempts: int
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -145,4 +146,5 @@ class Pipeline:
         end = action in ("ESCALATE", "OUT_OF_SCOPE")
         return TurnResult(answer=out["answer"], route=out.get("route"), confidence=out.get("confidence"),
                           action=action, tools=out.get("tools") or [], guardrail=out.get("guardrail"),
-                          elapsed_ms=int((time.perf_counter() - t0) * 1000), end_call=end)
+                          elapsed_ms=int((time.perf_counter() - t0) * 1000), end_call=end,
+                          attempts=out.get("attempts", 0))
