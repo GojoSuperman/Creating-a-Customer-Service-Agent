@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 
+from eval.calibration import calibration_table
 from server.config import load_settings
 from server.domain import ROUTES, load_domain
 from server.router import build_router, make_llm_classifier, make_rule_classifier
@@ -48,6 +49,12 @@ def main():
     print(f"\n[오분류 {len(miss)}건] — 여기를 읽는 것이 개선의 출발점이다")
     for q, g, p, c in miss:
         print(f"  [{g} → {p}] conf={c:.2f}  {q[:60]}")
+    conf = [st["confidence"] for st in states]
+    hit = [p == g for p, g in zip(pred, y)]
+    table, ece = calibration_table(conf, hit)
+    print("\n[확신도 보정표] 차이 = 평균확신도 - 정확도. 양수면 과신")
+    print(table.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
+    print(f"ECE {ece:.3f}  (0 에 가까울수록 확신도를 믿을 수 있다)")
     esc = sum(1 for st in states if st["action"] == "ESCALATE")
     print(f"\n이관 {esc}건 / 자동화율 {(len(states) - esc) / len(states):.3f}")
 
