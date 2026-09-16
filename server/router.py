@@ -39,7 +39,7 @@ class RouterState(TypedDict, total=False):
     route_alt: Optional[str]
     alt_confidence: float
     is_followup: bool
-    action: str           # HANDLE / ESCALATE / OUT_OF_SCOPE
+    action: str            # HANDLE / ESCALATE / OUT_OF_SCOPE
     message: Optional[str]
 
 

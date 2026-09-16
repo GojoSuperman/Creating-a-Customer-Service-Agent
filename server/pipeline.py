@@ -93,7 +93,8 @@ class AgentState(TypedDict, total=False):
     confidence: float
     route_alt: Optional[str]
     alt_confidence: float
-    routes: Annotated[list, operator.add]   # 리듀서: 턴마다 라우팅 판단 한 건이 쌓인다
+    # 리듀서: 턴마다 라우팅 판단 한 건({route, confidence, is_followup, gated})이 쌓인다
+    routes: Annotated[list, operator.add]
     is_followup: bool
     action: str        # HANDLE / ASK / ANSWER / RETRY / ESCALATE / OUT_OF_SCOPE
     tools: list
@@ -160,17 +161,23 @@ class Pipeline:
     # ── 노드 ──────────────────────────────────────────────
     def _node_route(self, state: AgentState) -> AgentState:
         routes = state.get("routes") or []
-        prev = routes[-1]["route"] if routes else None
+        prev_entry = routes[-1] if routes else None
+        prev = prev_entry["route"] if prev_entry else None
         q = compose_router_input(state["question"], state.get("history") or [], prev)
         r = self.router.invoke({"question": q})
         route = r["route"]
-        followup = bool(r.get("is_followup")) and prev is not None and prev != "OTHER"
+        gated = r["action"] == "ESCALATE"   # 게이트(확신도·마진)가 이 턴의 판단을 거부했다
+        # 게이트 미달 턴의 라우트는 추측이므로 상속 앵커로 쓰지 않는다. [직전 라우트] 는 그래도
+        # 라우터에 알려 주되(모델이 문맥을 보도록), 이어받기만 막는다. OTHER 도 같은 이유로 제외.
+        followup = (bool(r.get("is_followup")) and prev_entry is not None
+                    and not prev_entry["gated"] and prev_entry["route"] != "OTHER")
         if followup:
             route = prev   # 후속 발화는 라우트만 이어받고, 확신도 판정(action)은 라우터 결과를 그대로 쓴다
         base = {"route": route, "confidence": r["confidence"], "action": r["action"],
                 "route_alt": r.get("route_alt"), "alt_confidence": r.get("alt_confidence", 0.0),
                 "is_followup": followup,
-                "routes": [{"route": route, "confidence": r["confidence"], "is_followup": followup}],
+                "routes": [{"route": route, "confidence": r["confidence"],
+                            "is_followup": followup, "gated": gated}],
                 "attempts": 0, "tools": [], "results": {}, "guardrail": None}
         count = state.get("clarify_count", 0)
         if r["action"] == "ESCALATE" and count < self.settings.clarify_max:
