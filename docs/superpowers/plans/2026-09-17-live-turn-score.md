@@ -1,5 +1,7 @@
 # 실시간 턴 품질 표시 구현 플랜 (교육자료 방식)
 
+> **[폐기됨, 2026-09-17]** 이 문서가 기술하는 `/api/call/score` LLM 채점 설계는 채택되지 않았다. 실제로는 브라우저 누적 수치 집계(`web/statspanel.js`, 커밋 `d9f2052`)로 대체되었다. 기록 보존 목적으로 본문은 그대로 남겨둔다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 관리자 패널 아래쪽에 방금 턴의 품질을 **교육자료의 두 축(능력·안전)** 으로 보여준다. 총점으로 합치지 않는다.

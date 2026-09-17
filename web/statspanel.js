@@ -93,7 +93,7 @@ export function createStatsPanel(root) {
           ${row("도구 호출 없이 답변", s.noToolAnswer, "stat-warn")}
           ${row("되묻기(ASK)로 종료", s.askEnd, "stat-warn")}
           ${row("이관·범위 밖으로 종료", s.escalateEnd, "stat-warn")}
-          ${row("답변 도달", s.answered, "stat-warn")}
+          ${row("답변 도달", s.answered, "")}
         </div>
       </div>
       <div class="stats-ref">
