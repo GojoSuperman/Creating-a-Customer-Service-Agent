@@ -15,8 +15,8 @@
         <button type="button" id="btn-settings" class="settings-btn" title="설정" aria-label="설정">⚙</button>
       </div>
       <div class="meta"><span id="status">대기</span> · <span id="clock">00:00</span></div>
-      <a class="admin-link" href="/admin" target="_blank" rel="noopener">어드민</a>
-      <a class="admin-link" href="/shop" target="_blank" rel="noopener">쇼핑몰</a>
+      <a class="admin-link" href="/admin" data-modal-href="/admin" data-modal-title="어드민">어드민</a>
+      <a class="admin-link" href="/shop" data-modal-href="/shop" data-modal-title="쇼핑몰">쇼핑몰</a>
     </header>
     <div id="transcript" class="transcript"></div>
     <div id="interim" class="interim"></div>
@@ -58,6 +58,13 @@
     </div>
   </aside>
 </div>
+<dialog id="link-modal" class="link-modal">
+  <div class="link-modal-head">
+    <span id="link-modal-title" class="link-modal-title"></span>
+    <button type="button" id="link-modal-close" class="link-modal-close" title="닫기" aria-label="닫기">✕</button>
+  </div>
+  <iframe id="link-modal-frame" class="link-modal-frame" title="링크 미리보기"></iframe>
+</dialog>
 <dialog id="settings-modal" class="settings-modal">
   <form method="dialog" class="settings-form">
     <h3>OpenAI 키 설정</h3>

@@ -3,11 +3,13 @@ import { createVoice, preferredVoice, rememberVoice, voiceKey, labelVoices } fro
 import { createPanel } from "./panel.js";
 import { createDbPanel } from "./dbpanel.js";
 import { createSettings } from "./settings.js";
+import { createLinkModal } from "./linkmodal.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const state = { phase: "IDLE", callId: null, startedAt: null, turns: 0, textOnly: false, timer: null, gen: 0, busy: false };
 const settings = createSettings();
+createLinkModal();
 const voice = createVoice({ onInterim: (t) => { $("interim").textContent = t; }, getExtraHeaders: settings.headers });
 const panel = createPanel($("panel"));
 const dbPanel = createDbPanel();
