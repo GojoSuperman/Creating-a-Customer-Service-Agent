@@ -37,6 +37,22 @@ def score_tools(expect: dict, tools_called: list, action: str):
     return (not fails), fails
 
 
+def score_tools_legacy(expect: dict, tools_called: list, action: str):
+    """도구 호출 적절성의 **옛 정의**(과거 62.5%·56.2% 수치와 같은 잣대). score_tools 가 "정확히
+    일치"(집합 동치, extra 도 감점)로 엄격해지기 전에는 기대 도구 중 빠진 것(missing)만 보고 초과
+    호출(extra, 예: 상품명→ID 해석에 쓰는 search_product)은 감점하지 않았다. 과거 기록과 비교하려면
+    이 함수를, 새 요구사항(정확히 일치)을 보려면 score_tools 를 쓴다. action 판단은 두 정의에서
+    동일하게 본다(도구를 부를지/에스컬레이션할지의 판단이라 "옛 정의"에서도 계속 봤었다)."""
+    fails = []
+    need, got = set(expect.get("tools", [])), set(tools_called)
+    missing = need - got
+    if missing:
+        fails.append(f"tools 미호출: {sorted(missing)}")
+    if expect["action"] != action:
+        fails.append(f'action: 기대 {expect["action"]} != 실제 {action}')
+    return (not fails), fails
+
+
 def score_answer(expect: dict, answer: str):
     """답변 적절성. must(반드시 담아야 할 사실) 전부 포함 + forbid(말하면 안 되는 것) 전부 미포함이면
     1점. 표현이 아니라 사실을 보도록 숫자 표기(만/천 단위, 쉼표)를 정규화해서 비교한다.

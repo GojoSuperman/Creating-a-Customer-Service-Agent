@@ -12,7 +12,8 @@ import pandas as pd
 
 from eval.judge import judge_self_check, judge_turn, make_judge
 from eval.scoring import (aggregate_runs, fail_kinds, infer_action, load_first_turns, missing_must,
-                          needs_judge, score_answer, score_tools, self_check, self_check_split)
+                          needs_judge, score_answer, score_tools, score_tools_legacy, self_check,
+                          self_check_split)
 from server.answer import Answerer
 from server.config import load_settings
 from server.domain import load_domain
@@ -76,6 +77,9 @@ def main():
             action = infer_action(text, results)
             # 두 지표를 따로 채점한다: 도구 호출 적절성(tool_ok)과 답변 적절성(ans_ok).
             tool_ok, tool_fails = score_tools(case["expect"], list(results), action)
+            # 옛 정의(과거 62.5%·56.2% 와 같은 잣대) — missing 만 보고 extra 는 감점하지 않는다.
+            # 종합(기존 정의)을 함께 내려면 필요하다. 판정 자체에는 쓰지 않는다(요구사항은 엄격 정의).
+            tool_ok_legacy, tool_fails_legacy = score_tools_legacy(case["expect"], list(results), action)
             ans_ok, ans_fails = score_answer(case["expect"], text)
             how = "규칙" if ans_ok else None
             # judge 는 답변 적절성의 must 누락만 완화한다 — 도구 호출 적절성은 judge 대상이 아니다
@@ -90,8 +94,10 @@ def main():
                 else:
                     ans_fails = ans_fails + [f"judge: {v.reason}"]
             ok = tool_ok and ans_ok
+            ok_legacy = tool_ok_legacy and ans_ok   # 종합(기존 정의) — 과거 62.5%·56.2% 와 비교용
             fails = tool_fails + ans_fails
-            outs.append({"ok": ok, "tool_ok": tool_ok, "ans_ok": ans_ok, "how": how, "fails": fails,
+            outs.append({"ok": ok, "ok_legacy": ok_legacy, "tool_ok": tool_ok, "ans_ok": ans_ok, "how": how,
+                         "fails": fails, "fails_legacy": tool_fails_legacy + ans_fails,
                          "action": action, "text": text})
         return outs
 
@@ -113,12 +119,14 @@ def main():
     rows = []
     for c, outs in zip(scored, results_per_case):
         verdict = aggregate_runs([o["ok"] for o in outs])
+        verdict_legacy = aggregate_runs([o["ok_legacy"] for o in outs])
         tool_verdict = aggregate_runs([o["tool_ok"] for o in outs])
         ans_verdict = aggregate_runs([o["ans_ok"] for o in outs])
         first = outs[0]
         label, rule_ok = verdict_label(outs)
         rows.append({"conv": c["conv_id"], "기대": c["expect"]["action"], "실제": first["action"],
-                     "ok": verdict == "PASS", "tool_ok": tool_verdict == "PASS", "ans_ok": ans_verdict == "PASS",
+                     "ok": verdict == "PASS", "ok_legacy": verdict_legacy == "PASS",
+                     "tool_ok": tool_verdict == "PASS", "ans_ok": ans_verdict == "PASS",
                      "판정": label, "rule_ok": rule_ok,
                      "fails": "; ".join(first["fails"]), "answer": first["text"], "runs": outs})
     res = pd.DataFrame(rows)
@@ -127,10 +135,13 @@ def main():
         return
     n = len(res)
     tool_n, ans_n = int(res["tool_ok"].sum()), int(res["ans_ok"].sum())
-    print(f'\n[두 지표]  도구 호출 적절성 {tool_n}/{n} ({100 * tool_n / n:.1f}%)'
+    print(f'\n[두 지표]  도구 호출 적절성(엄격, 집합 정확 일치) {tool_n}/{n} ({100 * tool_n / n:.1f}%)'
           f'   답변 적절성 {ans_n}/{n} ({100 * ans_n / n:.1f}%)')
-    print(f'[종합 통과율 — 기존 지표와 비교용, 두 지표 AND]  통과 {int(res["ok"].sum())}건/{n}건'
-          f' ({100 * res["ok"].mean():.1f}%)   (자동 판정 불가 {len(cases) - len(scored)}건 제외)')
+    print(f'[종합(엄격) — 위 두 지표의 AND, 과거 기록과는 잣대가 달라 직접 비교 불가]  통과'
+          f' {int(res["ok"].sum())}건/{n}건 ({100 * res["ok"].mean():.1f}%)'
+          f'   (자동 판정 불가 {len(cases) - len(scored)}건 제외)')
+    print(f'[종합(기존 정의, 과거 62.5%·56.2% 와 비교용) — 도구는 missing 만 보고 extra 는 무시]  통과'
+          f' {int(res["ok_legacy"].sum())}건/{n}건 ({100 * res["ok_legacy"].mean():.1f}%)')
     if args.judge:
         print(f'  규칙 통과율 {int(res["rule_ok"].sum())}/{len(res)}   judge 포함 통과율 {int(res["ok"].sum())}/{len(res)}'
               f'   judge 호출 {judge_calls[0]}회')
