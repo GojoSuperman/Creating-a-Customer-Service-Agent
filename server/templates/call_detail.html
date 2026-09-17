@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}통화 {{ c.call_id }}{% endblock %}
+{% block body %}
+<h1>통화 {{ c.call_id }}</h1>
+<dl class="kv">
+  <dt>고객</dt><dd>{% if c.customer %}<a href="/admin/customers/{{ c.customer.customer_id }}">{{ c.customer.name }}</a> · {{ c.customer.phone }}{% else %}비회원{% endif %}</dd>
+  <dt>시작</dt><dd>{{ c.started_at | stamp }}</dd>
+  <dt>종료</dt><dd>{{ c.ended_at | stamp }}</dd>
+  <dt>턴 수</dt><dd>{{ c.turns | length }}</dd>
+</dl>
+<ol class="turns">
+  {% for t in c.turns %}
+  <li class="turn">
+    <div class="q">{{ t.q }}</div>
+    <div class="a">{% if t.a %}{{ t.a }}{% else %}<span class="empty">답변 기록 없음</span>{% endif %}</div>
+    <div class="meta">
+      <span>{{ t.route or "-" }}</span>
+      <span>{% if t.get('confidence') is not none %}확신도 {{ "%.2f" | format(t.get('confidence')) }}{% else %}확신도 기록 없음{% endif %}</span>
+      <span>{{ t.action or "-" }}</span>
+      <span>도구: {{ t.tools | join(", ") if t.tools else "없음" }}</span>
+      <span class="{{ 'ok' if t.guardrail_ok else 'bad' }}">가드레일 {{ "통과" if t.guardrail_ok else "위반/기록없음" }}</span>
+    </div>
+  </li>
+  {% else %}
+  <li class="empty">턴 기록 없음</li>
+  {% endfor %}
+</ol>
+{% endblock %}

@@ -12,3 +12,12 @@ td.num{text-align:right}
 .card{border:1px solid #e3e3e3;border-radius:8px;padding:16px;min-width:140px}
 .card .value{display:block;font-size:28px;font-weight:700}
 .empty{color:#888}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:4px 12px}
+.kv dt{color:#666;font-size:13px}
+.turns{list-style:decimal;padding-left:24px}
+.turn{border-bottom:1px solid #eee;padding:10px 0}
+.turn .q{font-weight:600}
+.turn .a{margin:4px 0}
+.turn .meta{display:flex;gap:12px;flex-wrap:wrap;color:#666;font-size:12px}
+.bad{color:#c0392b}
+.ok{color:#2c7a3f}

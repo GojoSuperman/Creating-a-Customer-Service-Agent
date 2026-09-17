@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}주문 {{ o.order_id }}{% endblock %}
+{% block body %}
+<h1>주문 {{ o.order_id }}</h1>
+<dl class="kv">
+  <dt>주문일</dt><dd>{{ o.ordered_at | mmdd }}</dd>
+  <dt>상태</dt><dd>{{ o.status }}{% if o.status_detail %} · {{ o.status_detail }}{% endif %}</dd>
+  <dt>고객</dt><dd>{% if o.customer %}<a href="/admin/customers/{{ o.customer.customer_id }}">{{ o.customer.name }}</a> · {{ o.customer.phone }}{% else %}비회원{% endif %}</dd>
+  <dt>금액</dt><dd>{{ o.order_amount | won }} (배송비 {{ o.shipping_fee | won }})</dd>
+  <dt>배송</dt><dd>{{ o.courier or "-" }} {{ o.tracking_no or "" }}</dd>
+  <dt>출고 예정</dt><dd>{{ o.expected_ship_date | mmdd }}</dd>
+  <dt>도착 예정</dt><dd>{{ o.expected_delivery | mmdd }}</dd>
+  {% if o.delay_days %}<dt>지연</dt><dd class="bad">{{ o.delay_days }}일 · {{ o.delay_reason or "" }}</dd>{% endif %}
+</dl>
+<h2>품목</h2>
+<table>
+  <thead><tr><th>상품</th><th>옵션</th><th>수량</th><th>가격</th></tr></thead>
+  <tbody>
+  {% for it in o["items"] %}
+    <tr><td>{{ it.name }}</td><td>{{ it.option or "-" }}</td><td>{{ it.qty }}</td><td class="num">{{ it.price | won }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<h2>배송 이벤트</h2>
+<ul class="events">
+  {% for e in o.events %}<li>{{ e.at | mmdd }} · {{ e.status }}{% if e.location %} · {{ e.location }}{% endif %}</li>
+  {% else %}<li class="empty">기록 없음</li>{% endfor %}
+</ul>
+{% if o["return_"] %}
+<h2>연결된 반품</h2>
+<p><a href="/admin/returns/{{ o['return_'].return_id }}">{{ o["return_"].return_id }}</a>
+   · {{ o["return_"].type }} · 단계 {{ o["return_"].stage }}</p>
+{% endif %}
+{% endblock %}

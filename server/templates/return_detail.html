@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}반품 {{ r.return_id }}{% endblock %}
+{% block body %}
+<h1>반품 {{ r.return_id }}</h1>
+<dl class="kv">
+  <dt>유형</dt><dd>{{ r.type }}</dd>
+  <dt>단계</dt><dd>{{ r.stage }}</dd>
+  <dt>접수일</dt><dd>{{ r.requested_at | mmdd }}</dd>
+  <dt>귀책</dt><dd>{{ r.fault_party or "-" }}</dd>
+  <dt>배송비 부담</dt><dd>{{ r.shipping_fee_bearer or "-" }}</dd>
+  <dt>환불액</dt><dd>{{ r.refund_amount | won }}</dd>
+  <dt>환불 산정</dt><dd>{{ r.refund_calc or "-" }}</dd>
+  <dt>완료 예정</dt><dd>{{ r.expected_completion | mmdd }}</dd>
+</dl>
+<h2>단계 이력</h2>
+<ul class="events">
+  {% for h in r.stage_history %}<li>{{ h.date | mmdd }} · {{ h.stage }}</li>
+  {% else %}<li class="empty">기록 없음</li>{% endfor %}
+</ul>
+<h2>원 주문</h2>
+{% if r.order %}
+<p><a href="/admin/orders/{{ r.order.order_id }}">{{ r.order.order_id }}</a>
+   {% if r.customer %} · <a href="/admin/customers/{{ r.customer.customer_id }}">{{ r.customer.name }}</a>{% endif %}</p>
+{% else %}
+<p class="empty">기록 없음</p>
+{% endif %}
+{% endblock %}

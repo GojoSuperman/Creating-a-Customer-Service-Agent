@@ -1,3 +1,4 @@
+import re
 import sqlite3
 
 import pytest
@@ -33,12 +34,18 @@ def client(modumall_dir_module):
     return TestClient(create_app(FakePipelineWithRepo(domain.db_path), domain))
 
 
-@pytest.mark.parametrize("path", ["/admin", "/admin/orders", "/admin/returns", "/admin/calls", "/admin/customers"])
-def test_list_pages_render(client, path):
+@pytest.mark.parametrize("path,text", [
+    ("/admin", "요약"),
+    ("/admin/orders", "주문"),
+    ("/admin/returns", "반품·교환"),
+    ("/admin/calls", "통화 로그"),
+    ("/admin/customers", "고객"),
+])
+def test_list_pages_render(client, path, text):
     r = client.get(path)
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
-    assert "어드민" in r.text
+    assert text in r.text
 
 
 def test_home_shows_summary_numbers(client):
@@ -65,3 +72,44 @@ def test_admin_not_mounted_without_repo(modumall_dir_module):
 
     c = TestClient(create_app(NoRepo(), load_domain(modumall_dir_module)))
     assert c.get("/admin").status_code == 404
+
+
+def test_order_detail_page(client):
+    r = client.get("/admin/orders/O-1006")
+    assert r.status_code == 200
+    assert "O-1006" in r.text and "R-2001" in r.text          # 연결된 반품 링크
+    assert "/admin/returns/R-2001" in r.text
+
+
+def test_return_detail_page(client):
+    r = client.get("/admin/returns/R-2001")
+    assert r.status_code == 200
+    assert "접수" in r.text and "/admin/orders/O-1006" in r.text
+
+
+def test_customer_detail_page(client):
+    # 목록 응답에서 실제 존재하는 고객 ID 를 뽑아 상세를 연다 (하드코딩 금지)
+    listing = client.get("/admin/customers", params={"page": 1})
+    cid = re.search(r"C-\d+", listing.text).group()
+    r = client.get(f"/admin/customers/{cid}")
+    assert r.status_code == 200
+    assert "주문" in r.text and "통화" in r.text
+
+
+def test_call_detail_page(client):
+    # 통화 목록에서 실제 링크된 통화 ID 를 뽑아 상세를 연다 (call_id 하드코딩 금지 — 공유 DB 는 가변)
+    listing = client.get("/admin/calls", params={"page": 1})
+    m = re.search(r'/admin/calls/([^"]+)"', listing.text)
+    assert m, "통화 목록에 상세 링크가 없음"
+    r = client.get(f"/admin/calls/{m.group(1)}")
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize("path", [
+    "/admin/orders/O-9999", "/admin/returns/R-9999",
+    "/admin/calls/없는통화", "/admin/customers/C-9999"])
+def test_missing_id_returns_html_404(client, path):
+    r = client.get(path)
+    assert r.status_code == 404
+    assert "text/html" in r.headers["content-type"]
+    assert "찾을 수 없습니다" in r.text

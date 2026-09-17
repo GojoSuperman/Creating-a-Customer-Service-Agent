@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}고객 {{ d.name }}{% endblock %}
+{% block body %}
+<h1>{{ d.name }}</h1>
+<dl class="kv">
+  <dt>고객 ID</dt><dd>{{ d.customer_id }}</dd>
+  <dt>전화</dt><dd>{{ d.phone }}</dd>
+  <dt>지역</dt><dd>{{ d.address_region or "-" }}</dd>
+  <dt>주소</dt><dd>{{ d.address or "-" }}</dd>
+  <dt>가입일</dt><dd>{{ d.joined_at | mmdd }}</dd>
+</dl>
+<h2>주문</h2>
+{% if d.orders %}
+<table>
+  <thead><tr><th>주문번호</th><th>주문일</th><th>상태</th><th>금액</th></tr></thead>
+  <tbody>
+  {% for o in d.orders %}
+    <tr>
+      <td><a href="/admin/orders/{{ o.order_id }}">{{ o.order_id }}</a></td>
+      <td>{{ o.ordered_at | mmdd }}</td>
+      <td>{{ o.status }}</td>
+      <td class="num">{{ o.order_amount | won }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">결과 없음</p>
+{% endif %}
+<h2>통화</h2>
+{% if d.calls %}
+<ul class="recent">
+  {% for c in d.calls %}
+    <li><a href="/admin/calls/{{ c.call_id }}">{{ c.started_at | stamp }}</a> · {{ c.turn_count }}턴</li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty">결과 없음</p>
+{% endif %}
+{% endblock %}
