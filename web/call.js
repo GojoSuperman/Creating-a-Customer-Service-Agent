@@ -1,6 +1,7 @@
 // 전화 상태 머신. IDLE → RINGING → SPEAKING ⇄ LISTENING → THINKING → ... → ENDED
 import { createVoice, preferredVoice, rememberVoice, voiceKey, labelVoices } from "./voice.js";
 import { createPanel } from "./panel.js";
+import { createStatsPanel } from "./statspanel.js";
 import { createDbPanel } from "./dbpanel.js";
 import { createSettings } from "./settings.js";
 import { createLinkModal } from "./linkmodal.js";
@@ -12,6 +13,7 @@ const settings = createSettings();
 createLinkModal();
 const voice = createVoice({ onInterim: (t) => { $("interim").textContent = t; }, getExtraHeaders: settings.headers });
 const panel = createPanel($("panel"));
+const statsPanel = createStatsPanel($("stats-panel"));
 const dbPanel = createDbPanel();
 
 // 서버가 401(OpenAI 키 없음/무효)을 주면 설정 모달을 열어 안내한다.
@@ -49,7 +51,7 @@ function addBubble(who, text) {
 
 async function startCall() {
   const gen = ++state.gen;
-  panel.clear(); $("transcript").innerHTML = ""; state.turns = 0;
+  panel.clear(); statsPanel.reset(); $("transcript").innerHTML = ""; state.turns = 0;
   setPhase("RINGING");
   await playRing(1500);
   if (gen !== state.gen) return;
@@ -136,6 +138,7 @@ async function sendTurn(text) {
   if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
   state.turns += 1;
   panel.addTurn(text, r);
+  statsPanel.addTurn(r);   // 네트워크 호출 없이 브라우저에서 바로 누적 집계
   await fillerDone;                       // 안내 음성이 재생 중이면 끝날 때까지 기다린다
   if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
   await say(r.answer, r.speech);

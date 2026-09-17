@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 from server.app import create_app
 from server.domain import load_domain
 from server.pipeline import TurnResult
-from server.turnscore import TurnVerdict
 
 
 class FakePipeline:
@@ -31,21 +30,6 @@ class FakePipeline:
 class BrokenPipeline(FakePipeline):
     def turn(self, call_id, text, api_key=None):
         raise RuntimeError("LLM 호출 실패")
-
-
-class LoggingPipeline(FakePipeline):
-    """채점 API 테스트용. 실제 Pipeline.turn() 처럼 turn_logs 에 턴 재료를 쌓는다."""
-    def __init__(self):
-        super().__init__()
-        self.turn_logs: dict[str, list] = {}
-
-    def turn(self, call_id, text, api_key=None):
-        result = super().turn(call_id, text, api_key=api_key)
-        self.turn_logs.setdefault(call_id, []).append({
-            "q": text, "a": result.answer, "route": result.route, "confidence": result.confidence,
-            "action": result.action, "tools": [t["name"] for t in (result.tools or [])],
-            "guardrail_ok": (result.guardrail or {}).get("ok"), "followup": False})
-        return result
 
 
 class CountingProductsRepo:
@@ -363,86 +347,3 @@ def test_start_call_returns_admin_profile_separately(modumall_dir):
     assert r["profile"]["address"] == "서울시 어딘가" and r["profile"]["customer_id"] == "C-0001"
     r = c.post("/api/call/start", json={}).json()
     assert r["customer"] is None and r["profile"] is None
-
-
-class _FakeLLMVerdict:
-    """judge_turn 이 쓰는 최소 인터페이스만 흉내 낸다 (should_have_asked/contradicts_tools/note)."""
-    should_have_asked = False
-    contradicts_tools = False
-    note = "근거는 충분하나 응대가 짧다"
-
-
-def _fake_scorer_factory(model, api_key):
-    def fake(msgs):
-        return _FakeLLMVerdict()
-    return fake
-
-
-@pytest.fixture
-def client_with_fake_scorer(modumall_dir):
-    pipeline = LoggingPipeline()
-    c = TestClient(create_app(pipeline, load_domain(modumall_dir), scorer_factory=_fake_scorer_factory))
-    return c
-
-
-def test_score_endpoint_scores_last_turn(client_with_fake_scorer):
-    c = client_with_fake_scorer
-    s = c.post("/api/call/start").json()
-    c.post("/api/call/turn", json={"call_id": s["call_id"], "text": "배송비 얼마예요?"}, headers=HEADERS_WITH_KEY)
-    r = c.post("/api/call/score", json={"call_id": s["call_id"]}, headers=HEADERS_WITH_KEY)
-    assert r.status_code == 200
-    body = r.json()
-    assert body["ok"] is True
-    assert "safety_flags" in body and "ability_flags" in body
-    assert body["should_have_asked"] is False and body["contradicts_tools"] is False
-    assert body["note"]
-
-
-def test_score_endpoint_404_for_unknown_call(client_with_fake_scorer):
-    r = client_with_fake_scorer.post("/api/call/score", json={"call_id": "없는통화"}, headers=HEADERS_WITH_KEY)
-    assert r.status_code == 404
-
-
-def test_score_endpoint_needs_key(client_with_fake_scorer, monkeypatch):
-    """키가 없으면 401 로 안내한다 (통화 자체는 계속된다)."""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    c = client_with_fake_scorer
-    s = c.post("/api/call/start").json()
-    c.post("/api/call/turn", json={"call_id": s["call_id"], "text": "배송비 얼마예요?"}, headers=HEADERS_WITH_KEY)
-    r = c.post("/api/call/score", json={"call_id": s["call_id"]})
-    assert r.status_code == 401
-
-
-def test_score_endpoint_does_not_500_on_scorer_failure(modumall_dir):
-    def broken_factory(model, api_key):
-        def boom(msgs):
-            raise RuntimeError("LLM 타임아웃")
-        return boom
-
-    pipeline = LoggingPipeline()
-    c = TestClient(create_app(pipeline, load_domain(modumall_dir), scorer_factory=broken_factory))
-    s = c.post("/api/call/start").json()
-    c.post("/api/call/turn", json={"call_id": s["call_id"], "text": "배송비"}, headers=HEADERS_WITH_KEY)
-    r = c.post("/api/call/score", json={"call_id": s["call_id"]}, headers=HEADERS_WITH_KEY)
-    assert r.status_code == 200
-    body = r.json()
-    assert body["ok"] is False and "error" in body
-
-
-def test_score_endpoint_scores_specific_turn(client_with_fake_scorer):
-    c = client_with_fake_scorer
-    s = c.post("/api/call/start").json()
-    c.post("/api/call/turn", json={"call_id": s["call_id"], "text": "첫 질문"}, headers=HEADERS_WITH_KEY)
-    c.post("/api/call/turn", json={"call_id": s["call_id"], "text": "두번째 질문"}, headers=HEADERS_WITH_KEY)
-    r = c.post("/api/call/score", json={"call_id": s["call_id"], "turn": 0}, headers=HEADERS_WITH_KEY)
-    assert r.status_code == 200 and r.json()["ok"] is True
-    r2 = c.post("/api/call/score", json={"call_id": s["call_id"], "turn": 99}, headers=HEADERS_WITH_KEY)
-    assert r2.status_code == 404
-
-
-def test_score_endpoint_never_calls_tts_or_blocks_turn(client_with_fake_scorer):
-    """채점 요청이 /api/call/turn 흐름과 무관한 별도 엔드포인트임을 확인한다."""
-    c = client_with_fake_scorer
-    s = c.post("/api/call/start").json()
-    t = c.post("/api/call/turn", json={"call_id": s["call_id"], "text": "배송비"}, headers=HEADERS_WITH_KEY).json()
-    assert "manual" not in t and "total" not in t and "safety_flags" not in t   # 판정 필드가 turn 응답에 섞여 있지 않다

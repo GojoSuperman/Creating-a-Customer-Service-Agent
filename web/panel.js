@@ -1,6 +1,8 @@
 // 관리자 패널: 턴마다 카드 하나. 라우트·확신도·도구·가드레일·소요 시간.
+// THRESHOLD(저확신 기준)는 하단 통계 패널(statspanel.js)도 같이 쓰므로 여기 한 곳에서만 정의한다.
+export const THRESHOLD = 0.5;
+
 export function createPanel(root) {
-  const THRESHOLD = 0.5;
   function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
   function mmdd(iso) { return iso ? `${parseInt(iso.slice(5, 7), 10)}월 ${parseInt(iso.slice(8, 10), 10)}일` : "-"; }

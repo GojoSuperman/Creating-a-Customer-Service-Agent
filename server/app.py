@@ -10,11 +10,9 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
-from server.context import build_context
 from server.domain import Domain
 from server.llmkey import current_request_key, redact
 from server.pronounce import to_speech
-from server.turnscore import judge_turn, make_scorer
 
 logger = logging.getLogger(__name__)
 
@@ -59,16 +57,9 @@ class TurnRequest(BaseModel):
         return v.strip()
 
 
-class ScoreRequest(BaseModel):
-    call_id: str
-    turn: Optional[int] = None   # 0부터. 생략하면 그 통화의 마지막 턴을 채점한다.
-
-
-def create_app(pipeline, domain: Domain, tts=None, check_model: str = "gpt-4.1-mini",
-               judge_model: str = "gpt-4.1-mini", scorer_factory=None) -> FastAPI:
+def create_app(pipeline, domain: Domain, tts=None, check_model: str = "gpt-4.1-mini") -> FastAPI:
     app = FastAPI(title=f"{domain.name} 음성 상담 에이전트")
     repo = getattr(pipeline, "repo", None)
-    _make_scorer = scorer_factory or make_scorer
 
     # 상품명 카탈로그(품번 "N번" 읽기용)는 요청마다 DB 를 훑지 않도록 한 번만 읽어 캐시한다.
     # None = 아직 안 읽음, list = 캐시된 상품명 목록(빈 리스트도 "읽었다"는 뜻).
@@ -131,42 +122,6 @@ def create_app(pipeline, domain: Domain, tts=None, check_model: str = "gpt-4.1-m
             raise HTTPException(status_code=404, detail="알 수 없는 call_id 입니다")
         result["speech"] = _safe_speech(result["answer"])
         return result
-
-    @app.post("/api/call/score")
-    def score_call(req: ScoreRequest, x_openai_key: Optional[str] = Header(None, alias="X-OpenAI-Key")):
-        """방금 턴 하나를 LLM 으로 채점한다. 답변 생성(/api/call/turn)과 분리된 요청이라
-        여기서 시간이 걸리거나 실패해도 통화 흐름에는 영향이 없다.
-
-        키가 없으면 401(통화는 계속돼야 하므로 여기서만 끊는다). 채점 자체가 실패(LLM 오류·
-        타임아웃)하면 500 이 아니라 실패를 담은 200 응답으로 돌려줘 화면이 "채점 실패"를
-        표시하게 한다."""
-        api_key = _resolve_key(x_openai_key)
-        if api_key is None:
-            raise HTTPException(status_code=401, detail=NO_KEY_MESSAGE)
-        turns = getattr(pipeline, "turn_logs", {}).get(req.call_id)
-        if not turns:
-            raise HTTPException(status_code=404, detail="알 수 없는 call_id 입니다")
-        idx = req.turn if req.turn is not None else len(turns) - 1
-        if idx < 0 or idx >= len(turns):
-            raise HTTPException(status_code=404, detail="알 수 없는 turn 번호입니다")
-        turn_log = turns[idx]
-        # 여기서 잡은 예외는 전역 예외 핸들러를 거치지 않고 직접 응답을 만들므로, redact() 의
-        # 이중 방어(current_request_key 리터럴 치환)가 작동하도록 이 요청의 키를 직접 등록한다.
-        key_token = current_request_key.set(api_key)
-        try:
-            manual_rules = ""
-            route = turn_log.get("route")
-            if route and route in domain.routes:
-                manual_rules = build_context(domain, route)
-            scorer = _make_scorer(judge_model, api_key)
-            conf_threshold = getattr(getattr(pipeline, "settings", None), "conf_threshold", None)
-            verdict = judge_turn(scorer, turn_log, manual_rules, conf_threshold=conf_threshold)
-        except Exception as exc:
-            logger.warning("턴 채점 실패", exc_info=True)
-            return {"ok": False, "error": redact(f"{type(exc).__name__}: {exc}")}
-        finally:
-            current_request_key.reset(key_token)
-        return {"ok": True, **verdict.model_dump()}
 
     @app.post("/api/tts")
     def synthesize(req: TtsRequest, x_openai_key: Optional[str] = Header(None, alias="X-OpenAI-Key")):
@@ -231,5 +186,4 @@ def build_default_app() -> FastAPI:
     from server.tts import make_openai_tts
     domain = load_domain(settings.domains_root / settings.domain)
     tts = make_openai_tts(settings.tts_model, settings.tts_voice) if settings.tts_model else None
-    return create_app(Pipeline(domain, settings), domain, tts=tts, check_model=settings.router_model,
-                      judge_model=settings.judge_model)
+    return create_app(Pipeline(domain, settings), domain, tts=tts, check_model=settings.router_model)
