@@ -11,7 +11,7 @@ a{color:var(--accent);text-decoration:none}
 .nav .who{color:var(--muted)}
 .nav form.logout{display:inline}
 .nav form.logout button{background:none;border:none;color:var(--ink);cursor:pointer;padding:0;font:inherit}
-main{padding:20px;max-width:1100px;margin:0 auto}
+main{padding:20px;max-width:1400px;margin:0 auto}
 input,select,button{font:inherit;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
 button{cursor:pointer}
 button:hover{border-color:var(--accent)}
@@ -33,10 +33,11 @@ form.add-to-cart label{display:flex;gap:6px;align-items:center;color:var(--muted
 .samples li{padding:4px 0}
 .paging{display:flex;gap:12px;align-items:center;margin-top:16px}
 .empty{color:var(--muted)}
-table{border-collapse:collapse;width:100%;display:block;overflow-x:auto;margin:12px 0}
-th,td{border-bottom:1px solid var(--line);padding:8px;text-align:left;font-size:14px;color:var(--ink);white-space:nowrap}
+/* 기본(넓은 화면: 별도 탭·모달)에서는 표가 컨테이너 폭을 채운다 */
+table{border-collapse:collapse;width:100%;display:table;table-layout:auto;margin:12px 0}
+th,td{border-bottom:1px solid var(--line);padding:8px;text-align:left;font-size:14px;color:var(--ink);white-space:normal}
 th{color:var(--muted);font-weight:600}
-td.num{text-align:right}
+td.num{text-align:right;white-space:nowrap}
 .notice{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px;margin:12px 0}
 .button{display:inline-block;background:var(--accent);color:#111;border-radius:6px;padding:8px 16px;font-weight:700;margin-top:8px}
 .button:hover{opacity:.9}

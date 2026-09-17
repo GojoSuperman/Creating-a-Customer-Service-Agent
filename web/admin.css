@@ -8,12 +8,17 @@ a{color:var(--accent)}
 .nav a:hover{color:var(--accent)}
 .nav .right{margin-left:auto;color:var(--accent)}
 .brand{font-weight:700;color:var(--ink)}
-main{padding:20px;max-width:1100px}
-table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}
-th,td{border-bottom:1px solid var(--line);padding:8px;text-align:left;font-size:14px;color:var(--ink);white-space:nowrap}
+main{padding:20px;max-width:1400px;margin:0 auto}
+/* 기본(넓은 화면: 별도 탭·모달)에서는 표가 컨테이너 폭을 채운다 */
+table{border-collapse:collapse;width:100%;display:table;table-layout:auto}
+th,td{border-bottom:1px solid var(--line);padding:8px;text-align:left;font-size:14px;color:var(--ink);white-space:normal}
 th{color:var(--muted);font-weight:600}
-td.num{text-align:right}
+td.num{text-align:right;white-space:nowrap}
+input,select,button{font:inherit;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}
+button:hover{border-color:var(--accent)}
 .filters{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap}
+.filters input{min-width:160px;flex:1 1 160px}
 .paging{display:flex;gap:12px;align-items:center;margin-top:16px}
 .cards{display:flex;gap:16px;flex-wrap:wrap}
 .card{border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:16px;min-width:140px}
@@ -31,6 +36,13 @@ td.num{text-align:right}
 .turn .meta{display:flex;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:12px}
 .bad{color:var(--bad)}
 .ok{color:var(--ok)}
+
+/* 좁은 폭(조회 패널 iframe, 약 420px) 전용: 표는 가로 스크롤로 유지 */
+@media (max-width: 720px) {
+  table{display:block;overflow-x:auto}
+  th,td{white-space:nowrap}
+  td.num{text-align:right}
+}
 
 /* 좁은 폭(조회 패널 iframe, 약 420px) 대응 */
 @media (max-width: 560px) {
