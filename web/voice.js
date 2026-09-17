@@ -18,20 +18,12 @@ export function rememberVoice(v) { try { localStorage.setItem(VOICE_PREF_KEY, v.
 // 바뀌면 어긋나므로 쓰지 않는다).
 export function voiceKey(v) { return v.voiceURI || `${v.name}|${v.lang}`; }
 
-// 엣지는 UA 에 "Chrome" 이 포함돼 있어 "Edg/" 를 먼저 확인해야 한다.
-function isChromeUA(ua) {
-  if (!ua) return false;
-  if (/Edg\//.test(ua)) return false;
-  return /Chrome\//.test(ua);
-}
-
-// 실제로 소리가 나는 음성만 추린다.
-// - localService === true (로컬 설치 음성) 는 어느 브라우저에서나 재생된다 → 항상 남긴다.
-// - localService === false (원격 음성) 는 크롬에서만 재생된다. 엣지 등에서는 목록에만
-//   있고 무음이라 뺀다.
-// - name+lang 이 같은 중복 항목은 하나만 남기고, 로컬 음성을 먼저 정렬한다.
-// - 거른 결과가 비면(전부 원격인데 크롬이 아닌 경우 등) 무음보다는 원래 목록을 그대로 돌려준다.
-export function usableVoices(voices, ua) {
+// 한국어 음성만 추리고, name+lang 이 같은 중복 항목은 하나만 남긴다.
+// 주의: 어떤 음성이 실제로 소리를 내는지는 브라우저·OS·설치 상태에 따라 달라 UA 나
+// localService 값만으로는 추측할 수 없다(엣지에서도 원격 음성이 재생되는 사례가 실측으로
+// 확인됨). 그래서 여기서는 "될 것 같은 것"을 걸러내지 않고, 중복만 정리한다.
+// 실제로 소리가 나는지는 미리듣기 버튼으로 사용자가 직접 확인한다.
+export function dedupeVoices(voices) {
   const ko = (voices || []).filter(v => v.lang && v.lang.toLowerCase().startsWith("ko"));
   const seen = new Set();
   const deduped = [];
@@ -41,10 +33,7 @@ export function usableVoices(voices, ua) {
     seen.add(key);
     deduped.push(v);
   }
-  deduped.sort((a, b) => (a.localService === b.localService) ? 0 : (a.localService ? -1 : 1));
-  const chrome = isChromeUA(ua);
-  const filtered = deduped.filter(v => v.localService || chrome);
-  return filtered.length ? filtered : deduped;
+  return deduped;
 }
 
 const KO_DIGITS = "공일이삼사오육칠팔구";
@@ -66,7 +55,7 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
   let audio = null;              // 서버 TTS 재생용
 
   function pickVoice() {
-    const ko = synth ? usableVoices(synth.getVoices(), navigator.userAgent) : [];
+    const ko = synth ? dedupeVoices(synth.getVoices()) : [];
     return preferredVoice(ko) || ko[0] || null;
   }
   if (synth) {
@@ -104,7 +93,21 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
 
   const api = {
     get supported() { return { recognition: !!SR, synthesis: !!synth }; },
-    listVoices() { return synth ? usableVoices(synth.getVoices(), navigator.userAgent) : []; },
+    listVoices() { return synth ? dedupeVoices(synth.getVoices()) : []; },
+    // 미리듣기: 현재 선택과 무관하게 지정한 음성으로 짧은 문장을 읽는다.
+    previewVoice(v) {
+      if (!synth || !v) return Promise.resolve();
+      synth.cancel();
+      return new Promise((resolve) => {
+        const u = new SpeechSynthesisUtterance("안녕하세요, 모두몰 고객센터입니다.");
+        u.lang = v.lang || lang;
+        u.voice = v;
+        u.rate = 1.0;
+        u.onend = () => resolve();
+        u.onerror = () => resolve();
+        synth.speak(u);
+      });
+    },
     setVoice(v) { voice = v; },
     setMode(m) { mode = m === "server" ? "server" : "browser"; },
     get mode() { return mode; },

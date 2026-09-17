@@ -34,6 +34,8 @@ select:disabled { opacity:.5 }
 #phone-input { padding-right:12px; background-image:none; width:150px; flex:0 0 auto }
 button { height:40px; padding:0 20px; border:none; border-radius:999px; font-size:.95em; font-weight:600; cursor:pointer; color:#fff; white-space:nowrap; flex:0 0 auto }
 .call { background:var(--accent) } .hangup { background:var(--bad) }
+.voice-preview { height:38px; padding:0 14px; border-radius:8px; background:var(--paper); border:1px solid var(--line); color:var(--ink); font-weight:500; font-size:.85em }
+.voice-preview:hover { border-color:var(--accent) }
 body[data-phase="IDLE"] .hangup, body[data-phase="ENDED"] .hangup { display:none }
 body:not([data-phase="IDLE"]):not([data-phase="ENDED"]) .call { display:none }
 body[data-phase="LISTENING"] header { box-shadow: inset 0 -3px 0 var(--accent) }
