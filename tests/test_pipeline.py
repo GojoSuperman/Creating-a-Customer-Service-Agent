@@ -606,3 +606,59 @@ def test_should_inherit_false_when_prev_gated():
 
 def test_should_inherit_false_when_prev_is_other():
     assert should_inherit(True, True, "OTHER", False) is False
+
+
+# ── BYOK: 요청별 OpenAI 키가 동시 요청 사이에 섞이지 않는지 ──────────────────
+
+class _KeyEchoRouter:
+    """실제 build_router 대신 주입되는 가짜. invoke() 가 자신이 만들어질 때 받은
+    api_key 를 그대로 route 문자열에 심어 돌려준다 — 다른 키의 라우터가 섞여 들어오면
+    바로 route 값이 달라져서 드러난다."""
+    def __init__(self, api_key):
+        self.api_key = api_key
+
+    def invoke(self, state):
+        return {"route": "PRODUCT_INFO", "confidence": 0.9, "action": "HANDLE",
+                "message": None, "route_alt": None, "alt_confidence": 0.0, "is_followup": False}
+
+
+class _KeyEchoAnswerer:
+    """마찬가지로 답변 문구에 자신의 api_key 를 그대로 넣어 돌려준다."""
+    def __init__(self, domain, model=None, max_tool_turns=3, api_key=None):
+        self.api_key = api_key
+
+    def answer(self, question, route, history=None, feedback=None, customer=None):
+        return (f"안내: 키={self.api_key}", {}, [])
+
+
+def test_concurrent_turns_with_different_keys_do_not_mix(domain, settings, monkeypatch):
+    """여러 사용자가 동시에 자기 키로 통화 중일 때, 한 통화의 답변에 다른 사용자의
+    키가 섞여 나오면 안 된다. 전역 환경변수를 바꾸는 구현이었다면 이 테스트가 흔들린다."""
+    import threading
+
+    monkeypatch.setattr("server.router.build_router",
+                        lambda d, thr, classify=None, model=None, conf_margin=0.0, api_key=None: _KeyEchoRouter(api_key))
+    monkeypatch.setattr("server.answer.Answerer", _KeyEchoAnswerer)
+
+    p = Pipeline(domain, settings)   # router/answerer 를 주입하지 않아 _router_for/_answerer_for 캐시 경로를 탄다
+    keys = [f"sk-user-{i}" for i in range(8)]
+    results = {}
+    errors = []
+
+    def run(key):
+        try:
+            cid, _, _ = p.start_call()
+            r = p.turn(cid, "이 상품 재질이 뭐예요?", api_key=key)
+            results[key] = r.answer
+        except Exception as e:   # pragma: no cover - 실패하면 아래 assert 에서 드러난다
+            errors.append(e)
+
+    threads = [threading.Thread(target=run, args=(k,)) for k in keys]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    for key in keys:
+        assert results[key] == f"안내: 키={key}"

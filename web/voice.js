@@ -23,7 +23,7 @@ export function speakable(text) {
   });
 }
 
-export function createVoice({ lang = "ko-KR", onInterim = () => {} } = {}) {
+export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHeaders = () => ({}) } = {}) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const synth = window.speechSynthesis;
   let rec = null;
@@ -48,8 +48,10 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {} } = {}) {
     if (audio) { try { audio.pause(); } catch (_) {} audio = null; }
     let url;
     try {
-      const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({ text: speakable(text) }) });
+      const res = await fetch("/api/tts", {
+        method: "POST", headers: { "Content-Type": "application/json", ...getExtraHeaders() },
+        body: JSON.stringify({ text: speakable(text) }),
+      });
       if (!res.ok) throw new Error(`tts ${res.status}`);
       url = URL.createObjectURL(await res.blob());
     } catch (e) {

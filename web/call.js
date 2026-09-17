@@ -2,13 +2,21 @@
 import { createVoice, preferredVoice, rememberVoice } from "./voice.js";
 import { createPanel } from "./panel.js";
 import { createDbPanel } from "./dbpanel.js";
+import { createSettings } from "./settings.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const state = { phase: "IDLE", callId: null, startedAt: null, turns: 0, textOnly: false, timer: null, gen: 0, busy: false };
-const voice = createVoice({ onInterim: (t) => { $("interim").textContent = t; } });
+const settings = createSettings();
+const voice = createVoice({ onInterim: (t) => { $("interim").textContent = t; }, getExtraHeaders: settings.headers });
 const panel = createPanel($("panel"));
 const dbPanel = createDbPanel();
+
+// 서버가 401(OpenAI 키 없음/무효)을 주면 설정 모달을 열어 안내한다.
+function openSettingsForMissingKey() {
+  addBubble("system", "OpenAI 키가 필요합니다. 설정에서 키를 넣어 주세요.");
+  settings.open("설정에서 OpenAI 키를 입력해 주세요");
+}
 
 function setPhase(p) {
   state.phase = p;
@@ -45,7 +53,8 @@ async function startCall() {
   if (gen !== state.gen) return;
   const sel = $("sample-select").value;
   const phone = (sel === "__manual" ? $("phone-input").value : sel) || null;
-  const r = await fetch("/api/call/start", { method: "POST", headers: { "Content-Type": "application/json" },
+  const r = await fetch("/api/call/start", { method: "POST",
+                                             headers: { "Content-Type": "application/json", ...settings.headers() },
                                              body: JSON.stringify({ phone }) }).then(r => r.json());
   if (gen !== state.gen) return;
   panel.setCustomer(r.customer || null, r.profile || null);
@@ -99,8 +108,17 @@ async function sendTurn(text) {
   }, 1500);
   let r;
   try {
-    const res = await fetch("/api/call/turn", { method: "POST", headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({ call_id: state.callId, text }) });
+    const res = await fetch("/api/call/turn", {
+      method: "POST", headers: { "Content-Type": "application/json", ...settings.headers() },
+      body: JSON.stringify({ call_id: state.callId, text }),
+    });
+    if (res.status === 401) {
+      clearTimeout(filler);
+      if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
+      openSettingsForMissingKey();
+      state.busy = false;
+      return listenLoop();
+    }
     if (!res.ok) throw new Error(`서버 오류 ${res.status}: ${await res.text()}`);
     r = await res.json();
   } catch (e) {

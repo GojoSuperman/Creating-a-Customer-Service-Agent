@@ -65,6 +65,25 @@ body[data-phase="SPEAKING"] header { box-shadow: inset 0 -3px 0 #60a5fa }
 code { background:#0f1318; padding:1px 5px; border-radius:4px }
 @media (max-width: 900px) { .layout { grid-template-columns:1fr; grid-template-rows: 1fr auto auto } .admin { max-height:40vh } .db { max-height:60vh } }
 .admin-link{color:inherit;font-size:12px;opacity:.7;text-decoration:underline}
+.settings-btn{background:none;border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer;
+  font-size:13px;text-decoration:none;margin-right:8px}
+.settings-btn:hover{opacity:1;border-color:var(--accent)}
+.settings-modal{background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:12px;
+  padding:0;width:min(360px,90vw)}
+.settings-modal::backdrop{background:rgba(0,0,0,.6)}
+.settings-form{display:flex;flex-direction:column;gap:12px;padding:20px 22px}
+.settings-form h3{margin:0;font-size:1.05em}
+.settings-hint{margin:0;color:var(--muted);font-size:.85em;line-height:1.5}
+.settings-field{display:flex;flex-direction:column;gap:6px;font-size:.9em;color:var(--muted)}
+.settings-field input{height:38px;padding:0 12px;border-radius:8px;border:1px solid var(--line);
+  background:var(--bg);color:var(--ink);font-size:.95em;font-family:inherit}
+.settings-field input:focus{outline:none;border-color:var(--accent)}
+.settings-key-status{min-height:1.3em;font-size:.85em;color:var(--muted)}
+.settings-key-status.ok{color:var(--ok)}
+.settings-key-status.bad{color:var(--bad)}
+.settings-actions{display:flex;justify-content:flex-end;gap:8px}
+.settings-actions .ghost{background:none;border:1px solid var(--line);color:var(--ink);height:36px;padding:0 14px}
+.settings-actions .call{height:36px;padding:0 18px}
 .db { display:flex; flex-direction:column; border-left:1px solid var(--line); background:var(--paper); min-width:0; min-height:0; }
 .db-tabs { display:flex; gap:4px; padding:10px 12px; border-bottom:1px solid var(--line); flex:0 0 auto; }
 .db-tab { flex:1 1 auto; height:34px; padding:0 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg);

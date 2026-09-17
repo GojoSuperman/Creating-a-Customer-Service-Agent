@@ -71,18 +71,28 @@ class ToolState(TypedDict, total=False):
 
 
 class Answerer:
-    def __init__(self, domain: Domain, model: Optional[str] = None, llm=None, max_tool_turns: int = 3):
+    def __init__(self, domain: Domain, model: Optional[str] = None, llm=None, max_tool_turns: int = 3,
+                api_key: Optional[str] = None):
         self.domain = domain
         self.max_tool_turns = max_tool_turns
         self.tools = make_tools(domain)
         self.lc_tools = [tool(fn) for fn in self.tools.values()]
-        if llm is None:
-            if model is None:
-                raise ValueError("model 또는 llm 중 하나는 있어야 합니다")
-            from langchain.chat_models import init_chat_model
-            llm = init_chat_model(model, temperature=0, timeout=60, max_retries=8).bind_tools(self.lc_tools)
+        if llm is None and model is None:
+            raise ValueError("model 또는 llm 중 하나는 있어야 합니다")
+        # llm 이 명시적으로 주어지면(테스트용 가짜 LLM 등) 그대로 쓰고, 아니면 _resolve_llm 에서
+        # 실제 호출 시점에 지연 생성한다. 서버 시작 시 환경변수 키가 없어도(순수 BYOK 배포)
+        # 여기서 즉시 실패하지 않게 하려는 것이다 — init_chat_model 은 생성 시점에 키가 없으면
+        # 바로 예외를 던진다.
         self.llm = llm
+        self._model = model
+        self._api_key = api_key
         self.graph = self._build()
+
+    def _resolve_llm(self):
+        if self.llm is not None:
+            return self.llm
+        from server.llmkey import get_chat_model
+        return get_chat_model(self._model, self._api_key).bind_tools(self.lc_tools)
 
     def _build(self):
         def agent(state: ToolState) -> ToolState:
@@ -90,7 +100,7 @@ class Answerer:
             # langgraph 의 add_messages 가 id 로 병합해 새 메시지로 인식하지 못하고
             # 대화가 자라지 않는다 (도구 반복 호출이 루프로 안 잡힘). 매 호출마다
             # id 를 새로 발급해 실제 LLM 이 매번 새 메시지를 내놓는 것과 동일하게 만든다.
-            msg = self.llm.invoke(state["messages"])
+            msg = self._resolve_llm().invoke(state["messages"])
             msg = msg.model_copy(update={"id": str(uuid.uuid4())})
             return {"messages": [msg]}
 

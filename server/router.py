@@ -62,24 +62,31 @@ def make_rule_classifier() -> Callable[[str], RouteDecision]:
     return classify
 
 
-def make_llm_classifier(domain: Domain, model: str) -> Callable[[str], RouteDecision]:
-    from langchain.chat_models import init_chat_model
+def make_llm_classifier(domain: Domain, model: str, api_key: Optional[str] = None) -> Callable[[str], RouteDecision]:
+    """api_key 가 주어지면 그 키로, 없으면(로컬 개발) 서버 환경변수로 모델을 만든다.
+
+    모델 생성 자체를 지연시킨다(클로저 안에서 매 호출 때 get_chat_model 을 부른다) —
+    서버 환경변수가 없는 상태로 떠 있다가(순수 BYOK 배포) 사용자가 자기 키를 보낼 때
+    비로소 그 키로 모델을 만들 수 있어야 하기 때문이다. get_chat_model 이 (model, api_key)
+    별로 캐싱하므로 실제로는 사용자당 한 번만 생성된다.
+    """
     guide = build_route_guide(domain)
-    chain = init_chat_model(model, temperature=0, timeout=60, max_retries=8) \
-        .with_structured_output(RouteDecision)
 
     def classify(question: str) -> RouteDecision:
+        from server.llmkey import get_chat_model
+        chain = get_chat_model(model, api_key).with_structured_output(RouteDecision)
         return chain.invoke([("system", guide), ("human", f"고객 문의: {question}")])
     return classify
 
 
 def build_router(domain: Domain, conf_threshold: float,
                  classify: Optional[Callable[[str], RouteDecision]] = None,
-                 model: Optional[str] = None, conf_margin: float = 0.0):
+                 model: Optional[str] = None, conf_margin: float = 0.0,
+                 api_key: Optional[str] = None):
     if classify is None:
         if model is None:
             raise ValueError("classify 또는 model 중 하나는 있어야 합니다")
-        classify = make_llm_classifier(domain, model)
+        classify = make_llm_classifier(domain, model, api_key=api_key)
 
     def node_classify(state: RouterState) -> RouterState:
         d = classify(state["question"])

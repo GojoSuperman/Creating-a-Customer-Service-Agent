@@ -4,9 +4,11 @@
 route → answer → guard → (END | answer 재시도 | escalate)
 통화(call_id)마다 체크포인터가 State 를 보존하므로 앞 턴의 발화가 뒤 턴에 이어진다.
 """
+import contextvars
 import datetime
 import operator
 import re
+import threading
 import time
 import uuid
 from dataclasses import dataclass, asdict
@@ -24,6 +26,14 @@ from server.repo import Repo
 # 데이터 생성기가 결정적으로 오늘 날짜를 이 값으로 고정해 두었다 (server/db/generate.py 참고).
 # 통화 인사말에서 "최근 14일 내 주문" 여부를 실측 시각과 무관하게 재현 가능하도록 상수로 둔다.
 TODAY = datetime.date(2026, 9, 16)
+
+# 이 턴에서 쓸 라우터·답변기 인스턴스(요청별 OpenAI 키로 만들어진 것일 수 있다).
+# AgentState 에 넣지 않는 이유: InMemorySaver 가 체크포인트마다 state 를 msgpack 으로
+# 직렬화하는데, 컴파일된 그래프·모델 인스턴스는 직렬화할 수 없어 매 턴 TypeError 가 난다.
+# current_caller 와 같은 이유로 contextvars 를 쓴다 — Pipeline.turn 이 그래프를 호출하는
+# 동안만 값을 채우고 끝나면 되돌린다.
+current_router: contextvars.ContextVar[Optional[object]] = contextvars.ContextVar("current_router", default=None)
+current_answerer: contextvars.ContextVar[Optional[object]] = contextvars.ContextVar("current_answerer", default=None)
 
 ASK_PATTERN = r"\?|주시겠|알려주|말씀해"
 # 답변 끝의 상담 종결 인사("더 궁금한 점 있으시면 말씀해 주세요")는 질문형 어미를 갖고 있어도
@@ -156,6 +166,12 @@ class Pipeline:
     def __init__(self, domain: Domain, settings: Settings, router=None, answerer=None):
         self.domain = domain
         self.settings = settings
+        # router/answerer 를 밖에서 주입받았으면(테스트의 가짜 객체 등) 항상 그것만 쓴다 — 요청별
+        # 키가 와도 무시한다. 주입받지 않았으면 기본은 서버 환경변수 폴백으로 미리 만들어 두고,
+        # 요청에 자기 키가 실려 오면 _router_for/_answerer_for 가 그 키 전용 인스턴스를 따로
+        # 만들어 캐싱한다(동시 요청 간 키가 섞이지 않도록 전역 상태를 바꾸지 않는다).
+        self._router_injected = router is not None
+        self._answerer_injected = answerer is not None
         if router is None:
             from server.router import build_router
             router = build_router(domain, settings.conf_threshold, model=settings.router_model,
@@ -165,19 +181,51 @@ class Pipeline:
             answerer = Answerer(domain, model=settings.answer_model, max_tool_turns=settings.max_tool_turns)
         self.router = router
         self.answerer = answerer
+        self._router_cache: dict[str, object] = {}
+        self._answerer_cache: dict[str, object] = {}
+        self._cache_lock = threading.Lock()
         self.repo = Repo(domain.db_path)
         self.calls: set[str] = set()
         self.customers: dict[str, Optional[dict]] = {}
         self.turn_logs: dict[str, list] = {}
         self.graph = self._build()
 
+    def _router_for(self, api_key: Optional[str]):
+        if self._router_injected or not api_key:
+            return self.router
+        with self._cache_lock:
+            r = self._router_cache.get(api_key)
+        if r is None:
+            from server.router import build_router
+            r = build_router(self.domain, self.settings.conf_threshold, model=self.settings.router_model,
+                             conf_margin=self.settings.conf_margin, api_key=api_key)
+            with self._cache_lock:
+                self._router_cache.setdefault(api_key, r)
+                r = self._router_cache[api_key]
+        return r
+
+    def _answerer_for(self, api_key: Optional[str]):
+        if self._answerer_injected or not api_key:
+            return self.answerer
+        with self._cache_lock:
+            a = self._answerer_cache.get(api_key)
+        if a is None:
+            from server.answer import Answerer
+            a = Answerer(self.domain, model=self.settings.answer_model,
+                        max_tool_turns=self.settings.max_tool_turns, api_key=api_key)
+            with self._cache_lock:
+                self._answerer_cache.setdefault(api_key, a)
+                a = self._answerer_cache[api_key]
+        return a
+
     # ── 노드 ──────────────────────────────────────────────
     def _node_route(self, state: AgentState) -> AgentState:
+        router = current_router.get() or self.router
         routes = state.get("routes") or []
         prev_entry = routes[-1] if routes else None
         prev = prev_entry["route"] if prev_entry else None
         q = compose_router_input(state["question"], state.get("history") or [], prev)
-        r = self.router.invoke({"question": q})
+        r = router.invoke({"question": q})
         route = r["route"]
         gated = r["action"] == "ESCALATE"   # 게이트(확신도·마진)가 이 턴의 판단을 거부했다
         is_followup = bool(r.get("is_followup"))   # 라우터가 낸 원값. 기록·관찰용으로 그대로 남긴다
@@ -202,14 +250,15 @@ class Pipeline:
         return base
 
     def _node_answer(self, state: AgentState) -> AgentState:
+        answerer = current_answerer.get() or self.answerer
         guardrail_state = state.get("guardrail")
         feedback = None
         if guardrail_state and not guardrail_state.get("ok"):
             feedback = "; ".join(f"{v['type']}: {v['detail']}" for v in guardrail_state["violations"])
         customer = state.get("customer")
-        text, results, calls = self.answerer.answer(state["question"], state["route"],
-                                                    history=state.get("history") or [],
-                                                    feedback=feedback, customer=customer)
+        text, results, calls = answerer.answer(state["question"], state["route"],
+                                              history=state.get("history") or [],
+                                              feedback=feedback, customer=customer)
         attempts = state.get("attempts", 0) + 1
         if text == self.domain.escalate_message:
             # 답변기가 도구 호출 상한에 걸려 스스로 이관 문구를 돌려준 경우 — 일반 답변으로 흘리지 않는다
@@ -376,7 +425,10 @@ class Pipeline:
         turns = self.turn_logs.pop(call_id, [])
         self.repo.finish_call(call_id, datetime.datetime.now().isoformat(), turns)
 
-    def turn(self, call_id: str, text: str) -> TurnResult:
+    def turn(self, call_id: str, text: str, api_key: Optional[str] = None) -> TurnResult:
+        """api_key 가 주어지면 이 턴에서만 그 키로 만든 라우터·답변기를 쓴다(다른 통화·다른
+        사용자와 섞이지 않는다). 없으면 서버 환경변수 폴백(생성자에서 이미 만들어 둔
+        self.router/self.answerer)을 그대로 쓴다."""
         if call_id not in self.calls:
             raise KeyError(call_id)
         t0 = time.perf_counter()
@@ -386,11 +438,17 @@ class Pipeline:
         caller = None
         if customer:
             caller = {"customer_id": customer["customer_id"], "phone": customer.get("phone")}
-        token = current_caller.set(caller)
+        router = self._router_for(api_key)
+        answerer = self._answerer_for(api_key)
+        caller_token = current_caller.set(caller)
+        router_token = current_router.set(router)
+        answerer_token = current_answerer.set(answerer)
         try:
             out = self.graph.invoke({"question": text, "customer": customer, "call_id": call_id}, cfg)
         finally:
-            current_caller.reset(token)
+            current_caller.reset(caller_token)
+            current_router.reset(router_token)
+            current_answerer.reset(answerer_token)
         action = out["action"]
         end = action in ("ESCALATE", "OUT_OF_SCOPE")
         g = out.get("guardrail")

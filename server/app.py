@@ -1,16 +1,25 @@
 # -*- coding: utf-8 -*-
 """FastAPI 앱. 정적 화면을 서빙하고 통화 API를 제공한다."""
+import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
 from server.domain import Domain
+from server.llmkey import redact
 
 WEB = Path(__file__).resolve().parent.parent / "web"
+
+NO_KEY_MESSAGE = "설정에서 OpenAI 키를 입력해 주세요"
+
+
+def _resolve_key(x_openai_key: Optional[str]) -> Optional[str]:
+    """헤더 키가 있으면 그것을, 없으면 서버 환경변수를 폴백으로 쓴다. 둘 다 없으면 None."""
+    return x_openai_key or os.environ.get("OPENAI_API_KEY") or None
 
 
 class StartRequest(BaseModel):
@@ -44,7 +53,7 @@ class TurnRequest(BaseModel):
         return v.strip()
 
 
-def create_app(pipeline, domain: Domain, tts=None) -> FastAPI:
+def create_app(pipeline, domain: Domain, tts=None, check_model: str = "gpt-4.1-mini") -> FastAPI:
     app = FastAPI(title=f"{domain.name} 음성 상담 에이전트")
 
     @app.get("/")
@@ -73,23 +82,45 @@ def create_app(pipeline, domain: Domain, tts=None) -> FastAPI:
         return {"ok": True}
 
     @app.post("/api/call/turn")
-    def turn(req: TurnRequest):
+    def turn(req: TurnRequest, x_openai_key: Optional[str] = Header(None, alias="X-OpenAI-Key")):
+        # 라우터·답변기가 실제로 OpenAI 를 부른다. 헤더 키도 서버 환경변수도 없으면 여기서
+        # 바로 401 로 끊어, 화면이 모달을 열게 한다(파이프라인까지 들어가서 예외로 새지 않게).
+        if _resolve_key(x_openai_key) is None:
+            raise HTTPException(status_code=401, detail=NO_KEY_MESSAGE)
         try:
-            return pipeline.turn(req.call_id, req.text).to_dict()
+            return pipeline.turn(req.call_id, req.text, api_key=x_openai_key).to_dict()
         except KeyError:  # Pipeline.turn에서 call_id 조회 실패만 처리
             raise HTTPException(status_code=404, detail="알 수 없는 call_id 입니다")
 
     @app.post("/api/tts")
-    def synthesize(req: TtsRequest):
-        # 서버 TTS 가 없으면 브라우저 음성으로 대체하라는 뜻으로 501
+    def synthesize(req: TtsRequest, x_openai_key: Optional[str] = Header(None, alias="X-OpenAI-Key")):
+        # 서버 TTS 가 없으면 브라우저 음성으로 대체하라는 뜻으로 501 (키 확인보다 먼저 — 기존 동작 유지)
         if tts is None:
             raise HTTPException(status_code=501, detail="서버 TTS 가 설정되지 않았습니다")
-        return Response(content=tts(req.text), media_type="audio/mpeg")
+        if _resolve_key(x_openai_key) is None:
+            raise HTTPException(status_code=401, detail=NO_KEY_MESSAGE)
+        return Response(content=tts(req.text, api_key=x_openai_key), media_type="audio/mpeg")
+
+    @app.post("/api/key/check")
+    def check_key(x_openai_key: Optional[str] = Header(None, alias="X-OpenAI-Key")):
+        """설정 모달의 "연결 확인" 버튼. 아주 짧은 모델 호출 1회로 키 유효성만 본다.
+        키 원문이나 OpenAI 오류 원문은 절대 돌려주지 않는다 — 유효/무효 한 줄만."""
+        if _resolve_key(x_openai_key) is None:
+            raise HTTPException(status_code=401, detail=NO_KEY_MESSAGE)
+        from server.llmkey import get_chat_model
+        try:
+            llm = get_chat_model(check_model, x_openai_key, cache=False)
+            llm.invoke([("human", "ping")])
+        except Exception:
+            return {"ok": False, "message": "키가 올바르지 않습니다"}
+        return {"ok": True, "message": "사용할 수 있는 키입니다"}
 
     @app.exception_handler(Exception)
     async def unhandled(request, exc):
-        # 조용히 이관으로 바꾸지 않는다 — 원인이 그대로 보이게 500으로 드러낸다
-        return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"})
+        # 조용히 이관으로 바꾸지 않는다 — 원인이 그대로 보이게 500으로 드러낸다.
+        # 다만 OpenAI 키가 예외 메시지에 섞여 나갈 수 있으므로(예: 인증 오류가 키 일부를
+        # 되돌려주는 경우) redact 로 한 번 걸러낸다.
+        return JSONResponse(status_code=500, content={"detail": redact(f"{type(exc).__name__}: {exc}")})
 
     repo = getattr(pipeline, "repo", None)
     if repo is not None:
@@ -112,4 +143,4 @@ def build_default_app() -> FastAPI:
     from server.tts import make_openai_tts
     domain = load_domain(settings.domains_root / settings.domain)
     tts = make_openai_tts(settings.tts_model, settings.tts_voice) if settings.tts_model else None
-    return create_app(Pipeline(domain, settings), domain, tts=tts)
+    return create_app(Pipeline(domain, settings), domain, tts=tts, check_model=settings.router_model)
