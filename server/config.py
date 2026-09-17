@@ -24,7 +24,7 @@ class Settings:
     tts_model: str = ""
     tts_voice: str = "nova"
     judge_model: str = "gpt-4.1-mini"
-    conf_margin: float = 0.0
+    conf_margin: float = 0.3
     followup_inherit: bool = False   # 후속 발화가 직전 라우트를 강제로 이어받을지. 기본 꺼짐
 
 

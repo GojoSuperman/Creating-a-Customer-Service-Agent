@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from eval.calibration import calibration_table, gate_grid, recommend_gate
+from eval.calibration import _margin, calibration_table, gate_grid, recommend_gate
 
 
 def test_buckets_and_ece():
@@ -52,10 +52,10 @@ def _hard():
 def test_gate_grid_counts_risky_and_wrong_escalation():
     g = gate_grid(_hard(), thresholds=(0.5,), margins=(0.0, 0.2))
     m0 = g[(g["임계값"] == 0.5) & (g["마진"] == 0.0)].iloc[0]
-    assert m0["경계모호위험"] == 1 and m0["비모호오이관"] == 0 and abs(m0["자동처리율"] - 1.0) < 1e-9
+    assert m0["경계모호위험"] == 1 and m0["비모호오이관"] == 0 and abs(m0["게이트통과율"] - 1.0) < 1e-9
     m2 = g[(g["임계값"] == 0.5) & (g["마진"] == 0.2)].iloc[0]
     assert m2["경계모호위험"] == 0 and m2["비모호오이관"] == 0
-    assert abs(m2["자동처리율"] - 2 / 3) < 1e-9
+    assert abs(m2["게이트통과율"] - 2 / 3) < 1e-9
 
 
 def test_gate_grid_threshold_escalates_low_confidence():
@@ -69,3 +69,9 @@ def test_recommend_gate_prefers_max_automation_under_risk_cap():
     best = recommend_gate(g, max_risky=0)
     assert best["임계값"] == 0.5 and best["마진"] == 0.2
     assert recommend_gate(g.iloc[0:0]) is None
+
+
+def test_margin_is_clamped_at_zero_when_alt_is_higher():
+    # 2순위 확신도가 1순위보다 높게 나온 응답도 마진은 음수가 되지 않는다(런타임 게이트와 동일)
+    row = pd.Series({"confidence": 0.4, "alt_confidence": 0.6, "route_alt": "SHIPPING"})
+    assert _margin(row) == 0.0

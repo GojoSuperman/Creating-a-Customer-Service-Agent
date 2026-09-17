@@ -41,7 +41,7 @@ def main():
         if verdict != "PASS":
             print(f"     사유: {'; '.join(fails)}")
             print(f"     답변: {r.answer[:100]}")
-    print("\n요약: " + "  ".join(f"{k} {v}" for k, v in sorted(verdicts.items())))
+    print(f"\n요약: runs={args.runs}  " + "  ".join(f"{k} {v}" for k, v in sorted(verdicts.items())))
     raise SystemExit(1 if verdicts.get("FAIL") else 0)
 
 

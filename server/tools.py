@@ -108,7 +108,7 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
         def _synonym_key(token: str):
             if token in synonyms:
                 return token
-            for k in synonyms:
+            for k in sorted(synonyms, key=len, reverse=True):   # 짧은 키가 긴 키를 가리지 않게 최장 우선
                 if _alias_match(k, token):     # "티는"→"티", 조사 화이트리스트만 허용
                     return k
             return None

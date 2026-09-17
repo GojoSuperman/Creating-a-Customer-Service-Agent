@@ -285,3 +285,12 @@ def test_short_query_skips_fuzzy_fallback(modumall_dir, monkeypatch):
 
 def test_three_char_typo_still_uses_fallback(tools):
     assert tools["search_product"]("켄버스화")["resolved_product_id"] == "P4001"
+
+
+def test_synonym_longest_key_wins_over_prefix(modumall_dir):
+    # 짧은 키가 긴 키를 가리지 않는다. "반팔티는" 은 "반팔티", "반팔은" 은 "반팔" 로 풀려야 한다.
+    domain = load_domain(modumall_dir)
+    domain.search["synonyms"] = {"반팔": "티셔츠", "반팔티": "티셔츠"}
+    tools = make_tools(domain)
+    assert tools["search_product"]("반팔티는")["resolved_product_id"] == "P3004"
+    assert tools["search_product"]("반팔은")["resolved_product_id"] == "P3004"

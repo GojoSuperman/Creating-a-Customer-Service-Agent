@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
-from eval.calibration import MARGIN_EDGES, calibration_table, gate_grid, recommend_gate
+from eval.calibration import MARGIN_EDGES, _margin, calibration_table, gate_grid, recommend_gate
 from server.config import load_settings
 from server.domain import load_domain
 from server.router import build_router, make_llm_classifier, make_rule_classifier
@@ -64,18 +64,18 @@ def main():
     print(table.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
     print(f"ECE {ece:.3f}")
 
-    margins = [1.0 if pd.isna(a) else c - ac for c, ac, a in zip(hard["confidence"], hard["alt_confidence"], hard["route_alt"])]
+    margins = hard.apply(_margin, axis=1).tolist()   # 게이트 마진 계산은 calibration._margin 하나만 쓴다
     mtable, _ = calibration_table(margins, ok, edges=MARGIN_EDGES)
     print("\n[마진 보정표 — 1순위-2순위 확신도 차이 구간별 정확도]")
     print(mtable.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
 
     grid = gate_grid(hard)
-    print("\n[임계값×마진 격자] 자동처리율 / 경계모호 위험 / 비모호 오이관")
-    print(grid.pivot(index="임계값", columns="마진", values="자동처리율").to_string(float_format=lambda v: f"{v:.3f}"))
+    print("\n[임계값×마진 격자] 게이트통과율 / 경계모호 위험 / 비모호 오이관")
+    print(grid.pivot(index="임계값", columns="마진", values="게이트통과율").to_string(float_format=lambda v: f"{v:.3f}"))
     print(grid.pivot(index="임계값", columns="마진", values="경계모호위험").to_string())
     print(grid.pivot(index="임계값", columns="마진", values="비모호오이관").to_string())
     best = recommend_gate(grid, max_risky=5)
-    print("\n[추천] " + (f"CONF_THRESHOLD={best['임계값']} CONF_MARGIN={best['마진']}  자동처리율 {best['자동처리율']:.3f}  경계모호 위험 {best['경계모호위험']}건"
+    print("\n[추천] " + (f"CONF_THRESHOLD={best['임계값']} CONF_MARGIN={best['마진']}  게이트통과율 {best['게이트통과율']:.3f}  경계모호 위험 {best['경계모호위험']}건"
                        if best else "경계모호 위험 5건 이하를 만족하는 조합이 없음"))
 
 
