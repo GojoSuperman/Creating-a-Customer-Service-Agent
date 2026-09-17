@@ -33,6 +33,14 @@ ASK_PATTERN = r"\?|주시겠|알려주|말씀해"
 CLOSING_PATTERN = r"(?:더|추가로|또)\s*(?:궁금|문의|필요)|언제든|편하게\s*말씀"
 
 
+def called_escalate(results: dict) -> bool:
+    """답변기가 escalate_to_agent 도구를 실제로 불렀는가. 오류 문자열 값은 호출로 치지 않는다."""
+    for key, value in (results or {}).items():
+        if key.split("#")[0] == "escalate_to_agent" and isinstance(value, dict) and value.get("escalated"):
+            return True
+    return False
+
+
 def infer_action(text: str, results: dict) -> str:
     """평가 채점기와 런타임이 같은 판정을 쓴다.
 
@@ -200,6 +208,9 @@ class Pipeline:
         attempts = state.get("attempts", 0) + 1
         if text == self.domain.escalate_message:
             # 답변기가 도구 호출 상한에 걸려 스스로 이관 문구를 돌려준 경우 — 일반 답변으로 흘리지 않는다
+            return {"action": "ESCALATE", "tools": calls, "results": results, "attempts": attempts}
+        if called_escalate(results):
+            # 모델이 이관 도구를 불렀으면 답변 문구와 무관하게 이관한다 (매뉴얼 7.2)
             return {"action": "ESCALATE", "tools": calls, "results": results, "attempts": attempts}
         action_inferred = infer_action(text, results)
         if action_inferred == "OUT_OF_SCOPE":

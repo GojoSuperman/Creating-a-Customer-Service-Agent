@@ -524,3 +524,30 @@ def test_routes_state_and_turn_log_contract(domain, settings):
     for entry in routes:
         assert set(entry) == {"route", "confidence", "is_followup", "gated"}
     assert p.turn_logs[cid][-1]["followup"] == r.is_followup
+
+
+def test_escalate_tool_call_ends_call(domain, settings):
+    ans = FakeAnswerer([("상담원에게 연결해 드리겠습니다.",
+                         {"escalate_to_agent": {"escalated": True, "reason": "환불 계좌 변경"}},
+                         [{"name": "escalate_to_agent", "args": {"reason": "환불 계좌 변경"}}])])
+    p = Pipeline(domain, settings, router=router_with(domain, "RETURN_REFUND", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    r = p.turn(cid, "환불 계좌를 바꾸고 싶어요")
+    assert r.action == "ESCALATE" and r.end_call is True
+    assert r.answer == domain.escalate_message
+    assert [t["name"] for t in r.tools] == ["escalate_to_agent"]
+
+
+def test_escalate_tool_repeated_key_also_ends_call(domain, settings):
+    ans = FakeAnswerer([("연결합니다.", {"get_order_status": {"status": "배송중"},
+                                    "escalate_to_agent#2": {"escalated": True, "reason": "x"}}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    assert p.turn(cid, "O-1001 이관해 주세요").end_call is True
+
+
+def test_escalate_tool_error_string_is_ignored(domain, settings):
+    ans = FakeAnswerer([("확인했습니다.", {"escalate_to_agent": "Error: reason missing", "get_order_status": {"status": "배송중"}}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    assert p.turn(cid, "O-1001 어디쯤이에요?").end_call is False
