@@ -221,15 +221,150 @@ class Gen:
                  "soldout": soldout, "soldout_note": "일시 품절" if soldout else None}
             self.insert_product(p)
 
-    def synth_customers(self, total=120):
+    def synth_customers(self, total=20):
+        """고객 20명. 결정적 순서로 만들어지므로(seed 고정) 몇 번을 새로 만들어도 아래 사연 배치가
+        그대로 유지된다.
+
+        고객 ID   | 출처       | 사연
+        ----------|-----------|--------------------------------------------------------------
+        C-0001    | canonical | O-1001 결제완료(출고 전) · O-1009 배송완료·외부채널 주문
+        C-0002    | canonical | O-1002 배송중 · O-1010 배송완료
+        C-0003    | canonical | O-1003 배송중·배송지연(지연 사유 있음) · O-1011 제작중(진행 중 주문 2건 이상)
+        C-0004    | canonical | O-1004 배송완료
+        C-0005    | canonical | O-1005 배송완료
+        C-0006    | canonical | O-1006 반품진행·검품중(R-2001)
+        C-0007    | canonical | O-1007 반품진행·승인(환불대기, R-2002)
+        C-0008    | canonical | O-1008 교환진행·입고완료(R-2003)
+        C-0009    | scripted  | 반품진행·수거대기
+        C-0010    | scripted  | 반품진행·수거완료
+        C-0011    | scripted  | 반품완료(환불완료 단계까지 끝난 반품)
+        C-0012    | scripted  | 교환완료(환불완료 단계까지 끝난 교환)
+        C-0013    | scripted  | 품절 상품(P4002 스니커즈) 주문 이력
+        C-0014    | scripted  | 진행 중 주문이 하나도 없음(배송완료 2건뿐)
+        C-0015~20 | 합성(랜덤) | 물량 채우기 — 상태 분포는 무작위지만 개인정보(주소·연락처)는 결정적
+
+        canonical 고객(C-0001~0008)은 mockdb.json 의 정식 주문·반품 소유자라 절대 값을 바꾸지 않는다
+        (canonical() 에서 이미 만들어짐). scripted 고객(C-0009~0014)은 synth_scripted() 가 채운다."""
         while len(self.customers) < total:
             self.new_customer()
 
-    def synth_orders(self, total=480):
+    def _calc_shipping(self, items, amount, cust):
+        """카테고리별 무료배송 임계값 합산 규칙(synth_orders 와 synth_scripted 가 공유)."""
+        cats = {self.products[i["product_id"]]["category"] for i in items}
+        ths = [self.categories[c].get("free_shipping_threshold") for c in cats]
+        free = all(t is not None for t in ths) and amount >= max(ths)
+        extra = 3000 if cust["address_region"] == "제주도서산간" else 0
+        return (0 if free else 2500) + extra, free
+
+    def _item(self, pid, option=None, qty=1):
+        p = self.products[pid]
+        return {"product_id": pid, "name": p["name"], "option": option, "qty": qty, "price": p["price"]}
+
+    def synth_scripted(self):
+        """C-0009~0014 에 결정적으로 배정한 사연(반품 수거대기/수거완료, 반품완료, 교환완료, 품절 상품
+        이력, 진행 중 주문 0건). synth_customers() 의 표와 짝이 맞아야 한다. 주문 번호 O-1012~1018,
+        반품 번호 R-2006~2009 를 쓰고, 이어지는 synth_orders/synth_returns 는 그 다음 번호부터 쓴다."""
+        cust9, cust10, cust11, cust12, cust13, cust14 = self.customers[8:14]
         n = 1011
+
+        def base_order(oid, cust, items, ordered_days_ago, status, status_detail, **extra_fields):
+            d = TODAY - timedelta(days=ordered_days_ago)
+            ordered = dt(d, 11, 0)
+            amount = sum(i["qty"] * i["price"] for i in items)
+            fee, free = self._calc_shipping(items, amount, cust)
+            o = {"order_id": oid, "ordered_at": ordered, "status": status, "status_detail": status_detail,
+                 "is_external_channel": False, "items": items, "order_amount": amount, "shipping_fee": fee,
+                 "free_shipping_applied": free, "address_region": cust["address_region"], "courier": None,
+                 "tracking_no": None, "invoice_printed": True, "expected_ship_date": (d + timedelta(days=1)).isoformat(),
+                 "shipped_at": None, "expected_delivery": None, "delivered_at": None, "delay_days": None, "delay_reason": None}
+            o.update(extra_fields)
+            self.insert_order(o, cust["customer_id"])
+            return o, amount
+
+        def scripted_return(rid, oid, r_type, stage, requested_days_ago, amount):
+            stages = ["접수", "수거대기", "수거완료", "입고완료", "검품중", "승인", "환불완료"]
+            upto = stages.index(stage)
+            req = TODAY - timedelta(days=requested_days_ago)
+            hist = [{"stage": s, "date": min(req + timedelta(days=i), TODAY).isoformat()} for i, s in enumerate(stages[:upto + 1])]
+            table = EXCHANGE_STAGE_DETAIL if r_type == "교환" else RETURN_STAGE_DETAIL
+            detail = table[stage]
+            final_status = RETURN_FINISHED_STATUS[r_type] if stage == "환불완료" else (f"{r_type}진행")
+            inspected = stage in ("승인", "환불완료")
+            fault = "판매자" if r_type == "교환" else "고객"  # 결정적: 교환은 판매자 귀책, 반품은 고객 단순변심
+            r = {"return_id": rid, "order_id": oid, "type": r_type, "return_scope": "전체",
+                 "reason_stated": RETURN_REASONS[0] if r_type == "반품" else RETURN_REASONS[1],
+                 "requested_at": req.isoformat(), "stage": stage,
+                 "inspection_result": (("하자" if fault == "판매자" else "정상") if inspected else None),
+                 "fault_party": fault if inspected else None,
+                 "shipping_fee_bearer": (("판매자" if fault == "판매자" else "고객") if inspected else None),
+                 "return_fee": (0 if fault == "판매자" else 5000) if inspected else None,
+                 "refund_amount": (amount if fault == "판매자" else amount - 5000) if inspected else None,
+                 "expected_completion": min(req + timedelta(days=7), TODAY).isoformat(), "stage_history": hist,
+                 "note": None if inspected else "검품 미완료로 귀책 미확정"}
+            self.insert_return(r)
+            self.con.execute("update orders set return_id=?, status=?, status_detail=? where order_id=?",
+                             (rid, final_status, detail, oid))
+
+        # C-0009: 반품진행 · 수거대기 (배송완료 후 수거를 기다리는 단계)
+        n += 1
+        o, amt = base_order(f"O-{n}", cust9, [self._item("P3002", "FREE / 블랙")], 8, "배송완료", "수령 완료",
+                             shipped_at=dt(TODAY - timedelta(days=9), 14), delivered_at=dt(TODAY - timedelta(days=7), 15),
+                             tracking_no="1200000009", courier=COURIERS[0])
+        scripted_return("R-2006", o["order_id"], "반품", "수거대기", 3, amt)
+
+        # C-0010: 반품진행 · 수거완료 (입고 대기 중)
+        n += 1
+        o, amt = base_order(f"O-{n}", cust10, [self._item("P6001", "95 / 블랙")], 10, "배송완료", "수령 완료",
+                             shipped_at=dt(TODAY - timedelta(days=11), 14), delivered_at=dt(TODAY - timedelta(days=9), 15),
+                             tracking_no="1200000010", courier=COURIERS[0])
+        scripted_return("R-2007", o["order_id"], "반품", "수거완료", 5, amt)
+
+        # C-0011: 반품완료 (환불완료 단계까지 끝남)
+        n += 1
+        o, amt = base_order(f"O-{n}", cust11, [self._item("P2001", "45cm / 실버")], 20, "배송완료", "수령 완료",
+                             shipped_at=dt(TODAY - timedelta(days=21), 14), delivered_at=dt(TODAY - timedelta(days=19), 15),
+                             tracking_no="1200000011", courier=COURIERS[0])
+        scripted_return("R-2008", o["order_id"], "반품", "환불완료", 17, amt)
+
+        # C-0012: 교환완료 (교환품 재출고까지 끝남)
+        n += 1
+        o, amt = base_order(f"O-{n}", cust12, [self._item("P3001", "M / 브라운")], 22, "배송완료", "수령 완료",
+                             shipped_at=dt(TODAY - timedelta(days=23), 14), delivered_at=dt(TODAY - timedelta(days=21), 15),
+                             tracking_no="1200000012", courier=COURIERS[0])
+        scripted_return("R-2009", o["order_id"], "교환", "환불완료", 19, amt)
+
+        # C-0013: 품절 상품(P4002 스니커즈) 주문 이력 — 재고 있을 때 산 주문이라 배송은 이미 끝났다
+        n += 1
+        base_order(f"O-{n}", cust13, [self._item("P4002", "250 / 화이트")], 60, "배송완료", "수령 완료",
+                   shipped_at=dt(TODAY - timedelta(days=61), 14), delivered_at=dt(TODAY - timedelta(days=59), 15),
+                   tracking_no="1200000013", courier=COURIERS[0])
+
+        # C-0014: 진행 중 주문이 하나도 없음 — 완료된 주문만 두 건
+        n += 1
+        base_order(f"O-{n}", cust14, [self._item("P1001", "M / 파스텔")], 45, "배송완료", "수령 완료",
+                   shipped_at=dt(TODAY - timedelta(days=46), 14), delivered_at=dt(TODAY - timedelta(days=44), 15),
+                   tracking_no="1200000014", courier=COURIERS[0])
+        n += 1
+        base_order(f"O-{n}", cust14, [self._item("P5001")], 90, "배송완료", "수령 완료",
+                   shipped_at=dt(TODAY - timedelta(days=91), 14), delivered_at=dt(TODAY - timedelta(days=89), 15),
+                   tracking_no="1200000015", courier=COURIERS[0])
+
+        # 제작중 표본을 늘린다(합성 물량을 줄인 만큼 무작위 추첨만으로는 test_status_distribution 의
+        # 최소 8건을 안정적으로 채우지 못할 수 있어, 정식 주문제작 상품 P3003 으로 결정적으로 보강한다).
+        # C-0009·C-0010 은 이미 반품 시나리오가 있으므로 진행 중 주문이 하나 더 생겨도 사연이 겹치지 않는다.
+        n += 1
+        base_order(f"O-{n}", cust9, [self._item("P3003", "M / 브라운")], 3, "제작중", "주문 제작 진행",
+                   expected_ship_date=(TODAY + timedelta(days=3)).isoformat(), invoice_printed=False)
+        n += 1
+        base_order(f"O-{n}", cust10, [self._item("P3003", "L / 브라운")], 1, "제작중", "주문 제작 진행",
+                   expected_ship_date=(TODAY + timedelta(days=5)).isoformat(), invoice_printed=False)
+        return n  # 다음 합성 주문이 이어받을 번호(O-{n+1}부터)
+
+    def synth_orders(self, total=80, start_n=1020, start_r=2010):
+        n = start_n
         pids = [p for p in self.products.values() if not p.get("soldout")]
         returns_pending = []
-        while n < 1000 + total:
+        while n < start_n + total:
             n += 1
             oid = f"O-{n}"
             cust = self.rnd.choice(self.customers)
@@ -242,11 +377,7 @@ class Gen:
                 items.append({"product_id": p["product_id"], "name": p["name"], "option": opt or None,
                               "qty": self.rnd.choices([1, 2, 3], weights=[80, 15, 5])[0], "price": p["price"]})
             amount = sum(i["qty"] * i["price"] for i in items)
-            cats = {self.products[i["product_id"]]["category"] for i in items}
-            ths = [self.categories[c].get("free_shipping_threshold") for c in cats]
-            free = all(t is not None for t in ths) and amount >= max(ths)
-            fee = 0 if free else 2500
-            extra = 3000 if cust["address_region"] == "제주도서산간" else 0
+            fee, free = self._calc_shipping(items, amount, cust)
             age = (TODAY - d).days
             r = self.rnd.random()
             mto_pids = [i["product_id"] for i in items if self.products[i["product_id"]].get("made_to_order")]
@@ -277,16 +408,16 @@ class Gen:
                     returns_pending.append((oid, status, items, amount, delivered))
             delay = 2 if detail == "배송 지연" else None
             o = {"order_id": oid, "ordered_at": ordered, "status": status, "status_detail": detail, "is_external_channel": False,
-                 "items": items, "order_amount": amount, "shipping_fee": fee + extra, "free_shipping_applied": free,
+                 "items": items, "order_amount": amount, "shipping_fee": fee, "free_shipping_applied": free,
                  "address_region": cust["address_region"], "courier": COURIERS[0] if shipped else None, "tracking_no": tracking,
                  "invoice_printed": invoice, "expected_ship_date": exp_ship, "shipped_at": shipped,
                  "expected_delivery": None if not shipped else (date.fromisoformat(shipped[:10]) + timedelta(days=2)).isoformat(),
                  "delivered_at": delivered, "delay_days": delay, "delay_reason": "물량 증가로 인한 간선 지연" if delay else None}
             self.insert_order(o, cust["customer_id"])
-        self.synth_returns(returns_pending)
+        self.synth_returns(returns_pending, start_r)
 
-    def synth_returns(self, pending):
-        n = 2005
+    def synth_returns(self, pending, start_n=2009):
+        n = start_n - 1
         for oid, status, items, amount, delivered in pending:
             n += 1
             rid = f"R-{n}"
@@ -338,7 +469,9 @@ def generate(domain_dir: Path, force: bool = False) -> Path:
     con = sqlite3.connect(tmp)
     con.executescript(SCHEMA.read_text(encoding="utf-8"))
     g = Gen(con, seed, random.Random(SEED))
-    g.refs(); g.canonical(); g.synth_customers(); g.synth_products(); g.synth_orders(); g.synth_restock()
+    g.refs(); g.canonical(); g.synth_customers(); g.synth_products()
+    last_n = g.synth_scripted()
+    g.synth_orders(start_n=last_n, start_r=2010); g.synth_restock()
     con.commit(); con.close()
     for p in (Path(str(tmp) + "-wal"), Path(str(tmp) + "-shm")):
         if p.exists():

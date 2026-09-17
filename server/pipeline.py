@@ -522,9 +522,12 @@ class Pipeline:
         active = [o["status"] for o in self.repo.recent_orders(c["customer_id"], 3) if o["status"] not in self.repo.IN_PROGRESS_EXCLUDED]
         return {"name": c["name"], "phone": c["phone"], "hint": "·".join(dict.fromkeys(active)) or None}
 
-    def sample_customers(self, n: int = 8) -> list[dict]:
-        """최근 30일 내 미배송 완료 주문이 있는 고객을 우선 추천한다 (통화 데모가 실제 진행 중인
-        주문을 보여줄 수 있도록). 부족하면 정식 주문 O-1001..O-1005 소유자로 채운다."""
+    def sample_customers(self, n: int = 20) -> list[dict]:
+        """통화 화면 드롭다운에 쓸 고객 전체 목록(기본값 n=20 은 도메인 고객 총원과 같다 — 쇼핑몰에서
+        방금 주문한 고객도 반드시 이 목록에 들어오게 하려면 일부만 추리지 않고 전원을 돌려줘야 한다).
+        다만 정렬은 유지한다: 진행 중 상태가 다양한 고객이 위에 오도록 먼저 뽑고(배송중 → 반품 →
+        교환 → 지연 → 제작 → 결제완료), 나머지 고객은 뒤에 이어 붙인다 — 드롭다운을 위에서부터
+        훑으면 상태 다양성이 먼저 보인다."""
         seen: set[str] = set()
         out: list[dict] = []
         cutoff = (TODAY - datetime.timedelta(days=30)).isoformat()
@@ -553,6 +556,17 @@ class Pipeline:
             o = self.repo.order(f"O-{1000 + i}")
             cid = o.get("customer_id") if o else None
             if not cid or cid in seen:
+                continue
+            seen.add(cid)
+            c = self.repo.customer(cid)
+            if c:
+                out.append(self._sample_entry(c))
+        # 위 단계로도 못 채운 나머지는 고객 ID 순으로 전부 붙인다 (쇼핑몰에서 막 주문한 고객이라도
+        # 반드시 목록에 들어오게 하는 최종 안전망).
+        for cid in self.repo.all_customer_ids():
+            if len(out) >= n:
+                break
+            if cid in seen:
                 continue
             seen.add(cid)
             c = self.repo.customer(cid)

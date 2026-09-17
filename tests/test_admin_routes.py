@@ -84,9 +84,11 @@ def test_nav_call_screen_link_targets_top(client):
 
 
 def test_orders_filter_keeps_querystring_in_paging_links(client):
-    r = client.get("/admin/orders", params={"status": "배송중", "page": 1})
+    # 20명 고객 설계에서 페이지 2개 이상을 보장하는 상태는 '배송완료'뿐이다(가장 큰 그룹).
+    # '배송중' 등 소수 상태는 고객당 1~2건뿐이라 페이지가 하나로 끝날 수 있다.
+    r = client.get("/admin/orders", params={"status": "배송완료", "page": 1})
     assert r.status_code == 200
-    assert "status=%EB%B0%B0%EC%86%A1%EC%A4%91" in r.text or "status=배송중" in r.text
+    assert "status=%EB%B0%B0%EC%86%A1%EC%99%84%EB%A3%8C" in r.text or "status=배송완료" in r.text
     assert "page=2" in r.text
 
 

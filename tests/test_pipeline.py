@@ -382,7 +382,7 @@ def test_sample_customers_carry_hint_and_profile(domain, settings):
     from server.repo import Repo
     p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=FakeAnswerer([]))
     samples = p.sample_customers()
-    assert len(samples) == 8
+    assert len(samples) == 20   # 도메인 고객 총원(20명) 전부가 드롭다운 목록에 들어와야 한다
     assert all(set(s) == {"name", "phone", "hint"} for s in samples)
     assert len({s["hint"] for s in samples if s["hint"]}) >= 3   # 상태별로 한 명씩 뽑아 힌트가 다양하다
     cid = Repo(domain.db_path).customer_by_phone(samples[0]["phone"])["customer_id"]

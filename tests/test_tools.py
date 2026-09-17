@@ -91,11 +91,13 @@ def test_get_order_status_includes_tracking_events(tools):
 
 
 def test_order_status_exposes_active_return(tools):
-    """반품이 진행 중인 주문은 그 사실을 별도 필드로 내려준다."""
-    out = tools["get_order_status"]("O-1072")
+    """반품이 진행 중인 주문은 그 사실을 별도 필드로 내려준다.
+    O-1013 은 시연용 20명 고객 설계에서 '반품진행·수거완료' 사연으로 결정적으로 배정한 주문이다
+    (server/db/generate.py 의 synth_scripted, 고객 C-0010)."""
+    out = tools["get_order_status"]("O-1013")
     assert out["status"] == "반품진행"
     ap = out["active_process"]
-    assert ap["kind"] == "반품" and ap["return_id"] == "R-2013"
+    assert ap["kind"] == "반품" and ap["return_id"] == "R-2007"
     assert ap["stage"] == "수거완료"
     assert out["events_note"]  # 이벤트가 과거 이력임을 알리는 문장이 있다
 

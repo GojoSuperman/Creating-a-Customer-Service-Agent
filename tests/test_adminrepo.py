@@ -64,20 +64,25 @@ def test_orders_paging_boundaries(admin):
 
 def test_orders_filter_by_date_to_with_time_is_not_appended(admin):
     # date_to 에 이미 시각(T)이 있으면 그대로 써야 한다. 날짜만 붙이는 로직이 남아 있으면
-    # "...T10:40:00T23:59:59" 가 되어 조용히 그날 전체(10:57 등 이후 주문)가 포함된다.
-    # 실측: 2026-09-10 에는 08:50~22:54 사이 주문이 여러 건 있고, 10:40:00 과 10:57:00 사이가
-    # 정확히 걸쳐 있어 경계 검증에 쓸 수 있다.
-    rows, total = admin.orders(date_from="2026-09-10", date_to="2026-09-10T10:40:00")
+    # "...T10:40:00T23:59:59" 가 되어 조용히 그날 전체(그 뒤 시각의 주문)가 포함된다.
+    # 하드코딩된 시각 대신, 같은 날짜에 서로 다른 시각의 주문이 2건 이상 있는 날을 실제 데이터에서
+    # 찾아 경계로 쓴다 — 생성기가 바뀌어 주문 시각이 달라져도 이 테스트는 깨지지 않는다.
+    by_day: dict[str, set[str]] = {}
+    for r in admin.con.execute("select ordered_at from orders order by ordered_at"):
+        by_day.setdefault(r["ordered_at"][:10], set()).add(r["ordered_at"])
+    day, times = next((d, sorted(t)) for d, t in by_day.items() if len(t) >= 2)
+    boundary, after = times[0], times[1]
+
+    rows, total = admin.orders(date_from=day, date_to=boundary)
     assert total == expected_count(
-        admin, "select count(*) from orders where ordered_at >= ? and ordered_at <= ?",
-        "2026-09-10", "2026-09-10T10:40:00")
-    assert all(r["ordered_at"] <= "2026-09-10T10:40:00" for r in rows)
-    assert any(r["ordered_at"] == "2026-09-10T10:40:00" for r in rows)
-    assert not any(r["ordered_at"] == "2026-09-10T10:57:00" for r in rows)
+        admin, "select count(*) from orders where ordered_at >= ? and ordered_at <= ?", day, boundary)
+    assert all(r["ordered_at"] <= boundary for r in rows)
+    assert any(r["ordered_at"] == boundary for r in rows)
+    assert not any(r["ordered_at"] == after for r in rows)
 
     # 날짜만 준 경우는 기존처럼 그날 끝(23:59:59)까지 포함되어야 한다
-    rows_date_only, _ = admin.orders(date_from="2026-09-10", date_to="2026-09-10")
-    assert any(r["ordered_at"] == "2026-09-10T22:54:00" for r in rows_date_only)
+    rows_date_only, _ = admin.orders(date_from=day, date_to=day)
+    assert any(r["ordered_at"] == times[-1] for r in rows_date_only)
 
 
 @pytest.mark.parametrize("method, id_key", [("orders", "order_id"), ("returns", "return_id")])

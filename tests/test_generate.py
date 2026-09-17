@@ -35,12 +35,47 @@ def count(db, table):
 
 
 def test_scale(db):
+    # 고객은 정확히 20명(시연용 "사연 있는" 소규모 명단 — 많을수록 드롭다운이 터진다).
+    # 주문은 고객당 평균 4~6건 수준(총 100건 안팎)이 되도록 줄였다. 나머지는 기존처럼 하한선만 본다.
     assert count(db, "products") >= 170
-    assert count(db, "customers") >= 120
-    assert count(db, "orders") >= 400
-    assert count(db, "returns") >= 50
-    assert count(db, "shipment_events") >= 400
+    assert count(db, "customers") == 20
+    assert 80 <= count(db, "orders") <= 130
+    assert count(db, "returns") >= 10
+    assert count(db, "shipment_events") >= 150
     assert count(db, "restock") >= 8
+
+
+def test_customer_story_coverage(db):
+    """20명 전체로 시연에 필요한 상황이 빠짐없이 커버돼야 한다(사람이 만든 시나리오가 깨지면
+    이 테스트가 잡아낸다 — 숫자 스케일 테스트만으로는 '어떤 상황이 있는지'를 보장하지 못한다)."""
+    def c(sql):
+        return db.execute(sql).fetchone()[0]
+
+    assert c("select count(*) from orders where status='배송중'") >= 1
+    assert c("select count(*) from orders where status_detail='배송 지연' and delay_reason is not null") >= 1
+    assert c("select count(*) from orders where status='제작중' and expected_ship_date is not null") >= 1
+    assert c("select count(*) from orders where status='결제완료'") >= 1
+    assert c("select count(*) from orders where status='배송완료'") >= 1
+    assert c("select count(*) from orders where is_external_channel=1") >= 1
+
+    for r_type, stage in [("반품", "수거대기"), ("반품", "수거완료"), ("반품", "검품중"), ("반품", "승인")]:
+        assert c(f"select count(*) from returns where type='{r_type}' and stage='{stage}'") >= 1, (r_type, stage)
+    assert c("select count(*) from orders where status='교환진행'") >= 1
+    assert c("select count(*) from orders where status='반품완료'") >= 1
+    assert c("select count(*) from orders where status='교환완료'") >= 1
+    assert c("select count(*) from returns where stage='환불완료'") >= 1
+
+    assert c("""select count(*) from orders o join order_items i on i.order_id=o.order_id
+                join products p on p.product_id=i.product_id where p.soldout=1""") >= 1
+
+    in_progress = "status not in ('배송완료','반품완료','교환완료')"
+    multi = db.execute(f"select customer_id from orders where {in_progress} "
+                        f"group by customer_id having count(*) >= 2").fetchall()
+    assert multi, "진행 중 주문이 2건 이상인 고객이 있어야 한다"
+
+    all_cust = {r[0] for r in db.execute("select customer_id from customers")}
+    active_cust = {r[0] for r in db.execute(f"select distinct customer_id from orders where {in_progress}")}
+    assert all_cust - active_cust, "진행 중 주문이 하나도 없는 고객이 있어야 한다"
 
 
 def test_canonical_products_preserved(db, modumall_dir_module):

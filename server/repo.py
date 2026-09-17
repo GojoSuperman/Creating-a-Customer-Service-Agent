@@ -73,6 +73,7 @@ class Repo:
 
     def customer(self, cid): return self._one("select * from customers where customer_id=?", cid)
     def customer_by_phone(self, phone): return self._one("select * from customers where phone=?", normalize_phone(phone))
+    def all_customer_ids(self): return [r["customer_id"] for r in self._all("select customer_id from customers order by customer_id")]
 
     def recent_orders(self, cid, limit=3):
         out = []
