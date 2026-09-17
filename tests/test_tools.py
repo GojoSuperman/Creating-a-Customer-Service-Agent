@@ -113,6 +113,20 @@ def test_order_status_has_no_active_process_when_delivered(tools, modumall_dir):
     assert out["status"] == "배송완료" and out.get("active_process") is None
 
 
+def test_order_status_has_no_active_process_when_return_finished(tools, modumall_dir):
+    """반품·교환이 환불완료로 끝난 주문은 더 이상 진행 중인 프로세스가 아니다."""
+    from server.repo import Repo
+    from server.domain import load_domain
+    repo = Repo(load_domain(modumall_dir).db_path)
+    for kind in ("반품", "교환"):
+        row = repo._one(
+            "select o.order_id from orders o join returns r on r.order_id=o.order_id "
+            "where r.stage='환불완료' and r.type=? limit 1", kind)
+        assert row, f"{kind} 환불완료 주문이 픽스처에 없습니다"
+        out = tools["get_order_status"](row["order_id"])
+        assert out.get("active_process") is None, f"{kind} 환불완료 주문인데 active_process 가 남아 있음"
+
+
 def test_unknown_id_returns_error(tools):
     assert "error" in tools["get_product_detail"]("P9999")
     assert "error" in tools["get_order_status"]("O-9999")
