@@ -90,6 +90,29 @@ def test_get_order_status_includes_tracking_events(tools):
     assert "events" in o and isinstance(o["events"], list)
 
 
+def test_order_status_exposes_active_return(tools):
+    """반품이 진행 중인 주문은 그 사실을 별도 필드로 내려준다."""
+    out = tools["get_order_status"]("O-1072")
+    assert out["status"] == "반품진행"
+    ap = out["active_process"]
+    assert ap["kind"] == "반품" and ap["return_id"] == "R-2013"
+    assert ap["stage"] == "수거완료"
+    assert out["events_note"]  # 이벤트가 과거 이력임을 알리는 문장이 있다
+
+
+def test_order_status_has_no_active_process_when_delivered(tools, modumall_dir):
+    """배송만 끝난 평범한 주문에는 진행 중 프로세스가 없다."""
+    from server.repo import Repo
+    from server.domain import load_domain
+    repo = Repo(load_domain(modumall_dir).db_path)
+    row = repo._one(
+        "select order_id from orders o where o.status='배송완료' "
+        "and not exists(select 1 from returns r where r.order_id=o.order_id) limit 1")
+    delivered = row["order_id"]
+    out = tools["get_order_status"](delivered)
+    assert out["status"] == "배송완료" and out.get("active_process") is None
+
+
 def test_unknown_id_returns_error(tools):
     assert "error" in tools["get_product_detail"]("P9999")
     assert "error" in tools["get_order_status"]("O-9999")

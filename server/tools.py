@@ -206,7 +206,17 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
                 "order_amount", "shipping_fee", "address_region", "courier", "tracking_no",
                 "invoice_printed", "expected_ship_date"]
         out = {k: o[k] for k in keys if k in o}
+        # 지금 진행 중인 반품·교환이 있으면 분명히 드러낸다. events 는 과거 배송 이력이라
+        # 그것만 읽으면 이미 끝난 반품 주문도 "배송 완료" 로 잘못 답하게 된다.
+        r = repo.return_by_order(order_id)
+        if r and r.get("stage") != "환불완료":
+            out["active_process"] = {"kind": r.get("type") or "반품", "return_id": r["return_id"],
+                                      "stage": r.get("stage"),
+                                      "expected_completion": r.get("expected_completion")}
+        else:
+            out["active_process"] = None
         out["events"] = repo.shipment_events(order_id)
+        out["events_note"] = "아래 events 는 지나간 배송 이력이며 현재 상태가 아니다"
         return clean(out)
 
     def get_product_detail(product_id: str) -> dict:
