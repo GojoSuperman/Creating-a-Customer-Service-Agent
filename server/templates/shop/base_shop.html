@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}모두몰{% endblock %} · 모두몰</title>
+<link rel="stylesheet" href="/static/shop.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="brand" href="/shop">모두몰</a>
+  <form class="search" method="get" action="/shop">
+    <input type="text" name="q" value="{{ request.query_params.get('q', '') }}" placeholder="상품 검색">
+    <button type="submit">검색</button>
+  </form>
+  <a href="/shop/cart">장바구니 ({{ cart_count }})</a>
+  {% if customer %}
+    <span class="who">{{ customer.name }} 님</span>
+    <a href="/shop/orders">내 주문</a>
+    <form class="logout" method="post" action="/shop/logout"><button type="submit">로그아웃</button></form>
+  {% else %}
+    <a href="/shop/login">로그인</a>
+  {% endif %}
+</nav>
+<main>
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>

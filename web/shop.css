@@ -1,0 +1,35 @@
+:root { --bg:#111418; --paper:#1b2027; --ink:#e8e8e4; --muted:#8b93a0; --line:#2b323c; --ok:#4ade80; --bad:#f87171; --accent:#22c55e; }
+* { box-sizing:border-box }
+body{font-family:"Noto Sans KR",system-ui,sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+a{color:var(--accent);text-decoration:none}
+.nav{display:flex;align-items:center;gap:16px;padding:12px 20px;background:var(--paper);color:var(--ink);border-bottom:1px solid var(--line);
+  overflow-x:auto;white-space:nowrap}
+.nav a{color:var(--ink)}
+.nav a:hover{color:var(--accent)}
+.brand{font-weight:700;color:var(--ink);font-size:1.1em}
+.nav .search{display:flex;gap:6px;margin-left:8px}
+.nav .who{color:var(--muted)}
+.nav form.logout{display:inline}
+.nav form.logout button{background:none;border:none;color:var(--ink);cursor:pointer;padding:0;font:inherit}
+main{padding:20px;max-width:1100px;margin:0 auto}
+input,select,button{font:inherit;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}
+button:hover{border-color:var(--accent)}
+.cats{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
+.cats a.on{color:var(--ink);font-weight:700;border-bottom:2px solid var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.card{display:block;border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:12px;position:relative}
+.card:hover{border-color:var(--accent)}
+.card .name{color:var(--ink);margin-top:4px}
+.card .price{color:var(--muted);margin-top:4px}
+.badge{display:inline-block;background:var(--bad);color:#111;border-radius:4px;padding:2px 6px;font-size:12px}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:12px 0}
+.kv dt{color:var(--muted);font-size:13px}
+form.add-to-cart{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px}
+form.add-to-cart label{display:flex;gap:6px;align-items:center;color:var(--muted)}
+.error{color:var(--bad)}
+.samples{margin-top:20px;color:var(--muted)}
+.samples ul{list-style:none;padding:0}
+.samples li{padding:4px 0}
+.paging{display:flex;gap:12px;align-items:center;margin-top:16px}
+.empty{color:var(--muted)}

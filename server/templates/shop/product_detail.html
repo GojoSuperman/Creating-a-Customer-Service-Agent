@@ -1,0 +1,26 @@
+{% extends "shop/base_shop.html" %}
+{% block title %}{{ p.name }}{% endblock %}
+{% block body %}
+<h1>{{ p.name }}</h1>
+<dl class="kv">
+  <dt>가격</dt><dd>{{ p.price | won }}</dd>
+  <dt>카테고리</dt><dd>{{ p.category }}</dd>
+  <dt>소재</dt><dd>{{ p.material or "-" }}</dd>
+</dl>
+{% if p.soldout %}
+<p class="badge">품절{% if p.soldout_note %} · {{ p.soldout_note }}{% endif %}</p>
+{% else %}
+<form class="add-to-cart" method="post" action="/shop/cart/add">
+  <input type="hidden" name="product_id" value="{{ p.product_id }}">
+  {% if option_combos %}
+  <label>옵션
+    <select name="option">
+      {% for combo in option_combos %}<option value="{{ combo }}">{{ combo }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
+  <label>수량 <input type="number" name="qty" value="1" min="1" max="99"></label>
+  <button type="submit">장바구니</button>
+</form>
+{% endif %}
+{% endblock %}

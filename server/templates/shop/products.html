@@ -1,0 +1,27 @@
+{% extends "shop/base_shop.html" %}
+{% block title %}상품 목록{% endblock %}
+{% block body %}
+<h1>모두몰</h1>
+<nav class="cats">
+  <a href="{{ page_url(path, {'q': query.get('q', '')}, 1) }}"
+     class="{{ 'on' if not query.get('category') else '' }}">전체</a>
+  {% for c in categories %}
+    <a href="{{ page_url(path, {'category': c.key, 'q': query.get('q', '')}, 1) }}"
+       class="{{ 'on' if query.get('category') == c.key else '' }}">{{ c.label }}</a>
+  {% endfor %}
+</nav>
+{% if not rows %}
+<p class="empty">결과 없음</p>
+{% else %}
+<div class="grid">
+  {% for p in rows %}
+    <a class="card" href="/shop/products/{{ p.product_id }}">
+      {% if p.soldout %}<span class="badge">품절</span>{% endif %}
+      <div class="name">{{ p.name }}</div>
+      <div class="price">{{ p.price | won }}</div>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% include "_paging.html" %}
+{% endblock %}

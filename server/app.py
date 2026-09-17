@@ -96,6 +96,9 @@ def create_app(pipeline, domain: Domain, tts=None) -> FastAPI:
         from server.admin import admin_router
         app.include_router(admin_router(repo))
 
+        from server.shop import shop_router
+        app.include_router(shop_router(repo, domain))
+
     if WEB.exists():
         app.mount("/static", StaticFiles(directory=WEB), name="static")
     return app
