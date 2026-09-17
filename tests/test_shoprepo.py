@@ -133,37 +133,45 @@ def test_shipping_free_exactly_at_threshold(shop):
     assert free_below is False and fee_below == shop.base_fee
 
 
+_SEED_SQL = """
+    insert into categories (key,label,free_shipping_threshold,free_shipping_note,return_window_days,return_window_basis,requires_unopened)
+      values ('UNDERWEAR','속옷',30000,null,7,'수령일',0), ('COSMETICS','화장품',null,'무료배송 대상이 아닙니다',7,'수령일',1);
+    insert into customers values ('C-0001','김테스트','010-1111-2222','수도권','서울시 강남구 1','2024-01-01');
+    insert into products (product_id,name,category,price,stock,is_set,soldout,has_quality_cert,made_to_order)
+      values ('P1','속옷 세트','UNDERWEAR',20000,5,0,0,0,0),
+             ('P2','품절 상품','UNDERWEAR',10000,0,0,1,0,0),
+             ('P3','재고없는 상품','UNDERWEAR',10000,null,0,0,0,0),
+             ('P4','클렌징 오일','COSMETICS',18000,3,0,0,0,0);
+    insert into orders (order_id,customer_id,ordered_at,status,order_amount,shipping_fee)
+      values ('O-1005','C-0001','2026-09-01T10:00:00','배송완료',10000,2500);
+"""
+
+
+class _FakeRepoDomain:
+    fixed_values = {"base_shipping_fee": 2500}
+
+
+def _shop_repo_over(con):
+    """이미 스키마·시드가 된 커넥션 위에 ShopRepo 를 만든다(경로 없이 커넥션만 주입)."""
+    from server.repo import Repo
+    from server.shoprepo import ShopRepo
+    import threading
+
+    repo = Repo.__new__(Repo)
+    repo.con = con
+    repo._lock = threading.RLock()
+    return ShopRepo(repo, _FakeRepoDomain())
+
+
 @pytest.fixture
 def memory_shop(modumall_dir_module):
     """쓰기 테스트 전용. 공유 DB 를 건드리지 않는다."""
-    from server.shoprepo import ShopRepo
-
     con = sqlite3.connect(":memory:", check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.executescript((ROOT / "server" / "db" / "schema.sql").read_text(encoding="utf-8"))
-    con.executescript("""
-        insert into categories (key,label,free_shipping_threshold,free_shipping_note,return_window_days,return_window_basis,requires_unopened)
-          values ('UNDERWEAR','속옷',30000,null,7,'수령일',0), ('COSMETICS','화장품',null,'무료배송 대상이 아닙니다',7,'수령일',1);
-        insert into customers values ('C-0001','김테스트','010-1111-2222','수도권','서울시 강남구 1','2024-01-01');
-        insert into products (product_id,name,category,price,stock,is_set,soldout,has_quality_cert,made_to_order)
-          values ('P1','속옷 세트','UNDERWEAR',20000,5,0,0,0,0),
-                 ('P2','품절 상품','UNDERWEAR',10000,0,0,1,0,0),
-                 ('P3','재고없는 상품','UNDERWEAR',10000,null,0,0,0,0),
-                 ('P4','클렌징 오일','COSMETICS',18000,3,0,0,0,0);
-        insert into orders (order_id,customer_id,ordered_at,status,order_amount,shipping_fee)
-          values ('O-1005','C-0001','2026-09-01T10:00:00','배송완료',10000,2500);
-    """)
+    con.executescript(_SEED_SQL)
     con.commit()
-
-    class FakeRepoDomain:
-        fixed_values = {"base_shipping_fee": 2500}
-
-    from server.repo import Repo
-    repo = Repo.__new__(Repo)          # 파일 경로 없이 커넥션만 주입
-    repo.con = con
-    import threading
-    repo._lock = threading.RLock()
-    return ShopRepo(repo, FakeRepoDomain())
+    return _shop_repo_over(con)
 
 
 def test_create_order_writes_order_and_items(memory_shop):
@@ -288,3 +296,136 @@ def test_create_order_rejects_negative_and_non_integer_qty(memory_shop):
     # 거부된 주문은 흔적을 남기지 않는다.
     assert memory_shop.con.execute("select count(*) from orders").fetchone()[0] == before_orders
     assert memory_shop.con.execute("select stock from products where product_id='P1'").fetchone()[0] == 5
+
+
+def test_create_order_rejects_unknown_customer(memory_shop):
+    """FK 가 강제되지 않는 SQLite 특성상, 존재하지 않는 고객으로도 주문이 만들어지면 안 된다."""
+    from server.shoprepo import OrderError
+
+    before_orders = memory_shop.con.execute("select count(*) from orders").fetchone()[0]
+    with pytest.raises(OrderError):
+        memory_shop.create_order("C-9999", [{"product_id": "P1", "option": None, "qty": 1}])
+    assert memory_shop.con.execute("select count(*) from orders").fetchone()[0] == before_orders
+    assert memory_shop.con.execute("select stock from products where product_id='P1'").fetchone()[0] == 5
+
+
+def test_create_order_aggregates_duplicate_lines_against_stock(memory_shop):
+    """같은 product_id 가 여러 줄로 나뉘어도 합산 수량으로 재고를 검증해야 한다.
+    P1 재고 5인데 3+3=6 줄을 담으면 거부되어야 하고, 재고는 음수가 되면 안 된다."""
+    from server.shoprepo import OrderError
+
+    with pytest.raises(OrderError) as e:
+        memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 3},
+                                            {"product_id": "P1", "option": None, "qty": 3}])
+    assert any("재고" in m for m in e.value.blocked)
+    assert memory_shop.con.execute("select stock from products where product_id='P1'").fetchone()[0] == 5
+    assert memory_shop.con.execute("select count(*) from order_items").fetchone()[0] == 0
+
+
+def test_create_order_allows_duplicate_lines_within_combined_stock(memory_shop):
+    """합산 수량이 재고 이내면 중복 줄이어도 성공하고, 재고는 정확히 합산만큼 줄어야 한다."""
+    oid = memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 2},
+                                              {"product_id": "P1", "option": None, "qty": 3}])
+    assert memory_shop.con.execute("select stock from products where product_id='P1'").fetchone()[0] == 0
+    items = memory_shop.con.execute("select * from order_items where order_id=?", (oid,)).fetchall()
+    assert len(items) == 2 and sum(i["qty"] for i in items) == 5
+
+
+def test_create_order_rowcount_guard_catches_stale_stock_read(memory_shop):
+    """[Critical 2 이중 방어] 조회 시점에는 재고가 넉넉해 보였지만(부풀려진 값을 흉내) 실제 갱신
+    시점의 DB 재고는 부족한 상황을 흉내 내어, 합산 사전검증을 속이고도 rowcount 가드가 잡는지 확인한다."""
+    from server.shoprepo import OrderError
+
+    real_product = memory_shop.repo.product
+
+    def stale_product(product_id):
+        row = real_product(product_id)
+        if row is None or product_id != "P1":
+            return row
+        d = dict(row)
+        d["stock"] = 999  # 실제 DB 는 5 인데 조회 시점엔 부풀려서 보고한다고 가정
+        return d
+
+    memory_shop.repo.product = stale_product
+    try:
+        with pytest.raises(OrderError):
+            memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 10}])
+    finally:
+        memory_shop.repo.product = real_product
+
+    assert memory_shop.con.execute("select stock from products where product_id='P1'").fetchone()[0] == 5
+    assert memory_shop.con.execute("select count(*) from order_items").fetchone()[0] == 0
+
+
+def test_create_order_uses_savepoint_not_forced_commit_of_outer_transaction(memory_shop):
+    """[Critical 1] 남의 미커밋 트랜잭션을 임의로 커밋하지 않는지 실측한다.
+    외부가 커밋하지 않은 insert 를 남겨둔 채 create_order 를 실패시키고, 외부가 rollback 하면
+    그 행도 사라져야 한다(예전 구현은 begin 전에 무조건 commit 해 버려 이 케이스에서 행이 남았다)."""
+    from server.shoprepo import OrderError
+
+    memory_shop.con.execute("insert into customers values ('C-EXT','외부','010-9999-0000','수도권','외부 1','2024-03-03')")
+    assert memory_shop.con.in_transaction is True  # 아직 커밋 전(암묵적 트랜잭션)
+
+    with pytest.raises(OrderError):
+        memory_shop.create_order("C-0001", [{"product_id": "P2", "option": None, "qty": 1}])  # 품절 → 실패
+
+    memory_shop.con.rollback()  # 외부 트랜잭션은 외부가 되돌린다
+    assert memory_shop.con.execute("select count(*) from customers where customer_id='C-EXT'").fetchone()[0] == 0
+
+
+def test_create_order_executes_savepoint_statements(memory_shop):
+    """savepoint/release 문이 실제로 실행되는지 SQL 을 가로채 확인한다."""
+    real_con = memory_shop.con
+    seen = []
+
+    class RecordingConnection:
+        def __init__(self, real):
+            self._real = real
+
+        def execute(self, sql, params=()):
+            seen.append(sql)
+            return self._real.execute(sql, params)
+
+        def commit(self):
+            self._real.commit()
+
+        def rollback(self):
+            self._real.rollback()
+
+        @property
+        def in_transaction(self):
+            return self._real.in_transaction
+
+    memory_shop.con = RecordingConnection(real_con)
+    try:
+        memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 1}])
+    finally:
+        memory_shop.con = real_con
+
+    assert any(s.startswith("savepoint shop_order") for s in seen)
+    assert any(s.startswith("release shop_order") for s in seen)
+    assert any(s.startswith("begin immediate") for s in seen)
+
+
+def test_create_order_is_durable_across_a_second_connection(tmp_path):
+    """[Important 2] 최종 commit() 이 실제로 디스크에 반영되는지, 같은 커넥션이 아닌
+    별도 커넥션으로 다시 열어서 확인한다(같은 커넥션으로만 읽으면 commit 유무를 구별하지 못한다)."""
+    db_path = tmp_path / "shop_durability.db"
+    con = sqlite3.connect(str(db_path), check_same_thread=False)
+    con.row_factory = sqlite3.Row
+    con.executescript((ROOT / "server" / "db" / "schema.sql").read_text(encoding="utf-8"))
+    con.executescript(_SEED_SQL)
+    con.commit()
+    shop = _shop_repo_over(con)
+
+    oid = shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 1}])
+    con.close()
+
+    con2 = sqlite3.connect(str(db_path))
+    con2.row_factory = sqlite3.Row
+    try:
+        row = con2.execute("select * from orders where order_id=?", (oid,)).fetchone()
+        assert row is not None and row["status"] == "결제완료"
+        assert con2.execute("select stock from products where product_id='P1'").fetchone()[0] == 4
+    finally:
+        con2.close()
