@@ -28,7 +28,7 @@ class RouteDecision(BaseModel):
     alt_confidence: float = Field(default=0.0, ge=0.0, le=1.0,
                                   description="route_alt 의 확신도. route_alt 가 null 이면 0.")
     is_followup: bool = Field(default=False,
-                              description="[직전 라우트] 가 주어졌고 현재 발화가 그 문의의 연속(같은 상품·주문·주제의 추가 질문)이면 true. 새 주제면 false. 직전 라우트가 없으면 false.")
+                              description="[직전 라우트] 가 주어졌고 현재 발화가 직전 문의와 같은 라우트로 처리되어야 하는 연속 발화(같은 상품·주문·주제에 대한 추가 질문, 되묻기에 대한 대답)면 true. 배송 문의 뒤에 반품을 묻는 것처럼 주제(라우트)가 바뀌면 false. 직전 라우트가 없으면 false.")
 
 
 class RouterState(TypedDict, total=False):
