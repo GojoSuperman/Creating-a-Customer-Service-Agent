@@ -16,6 +16,10 @@ from server.domain import Domain
 VIOLATION_UNSOURCED = "출처 불명 수치"
 VIOLATION_NO_TOOL = "툴 미호출 단정"
 VIOLATION_ASSERT_UNCONFIRMED = "미확정값 확답"
+VIOLATION_STALE_STATE = "진행 중 상태 누락"
+
+# 진행 중인 반품·교환을 언급했다고 볼 수 있는 말들. 하나라도 있으면 통과로 본다.
+_PROCESS_WORDS = ("반품", "교환", "수거", "검품", "환불", "입고")
 
 # 미확정 필드별로, 답변에서 "확답"으로 간주할 패턴
 ASSERTION_PATTERNS = {
@@ -146,6 +150,21 @@ def check(answer: str, tool_results: dict, domain: Domain, min_check: int = 1000
                         violations.append({"type": VIOLATION_ASSERT_UNCONFIRMED,
                                            "detail": f"{fld} 가 미확정인데 확답 패턴 발견: /{pat}/"})
                         break
+
+    # 진행 중인 반품·교환(active_process)이 있는데 답변이 그 사실을 한 마디도 하지 않으면 위반이다.
+    # 도구 이름 → 결과 dict 형태(같은 도구를 여러 번 부르면 "이름#2" 식으로 추가 키가 붙는다)를
+    # 그대로 순회한다. 가장 먼저 만난 active_process 하나만 검사한다.
+    for result in (tool_results or {}).values():
+        if not isinstance(result, dict):
+            continue
+        active = result.get("active_process")
+        if not active:
+            continue
+        if not any(word in answer for word in _PROCESS_WORDS):
+            violations.append({"type": VIOLATION_STALE_STATE,
+                               "detail": f"{active.get('kind')} {active.get('stage')} 진행 중인데 답변이 그 사실을 말하지 않았다"})
+        break
+
     return GuardResult(ok=not violations, violations=violations,
                        numbers_in_answer=sorted(found), from_tools=sorted(tool_nums))
 

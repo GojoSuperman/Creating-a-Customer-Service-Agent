@@ -200,3 +200,30 @@ def test_normalize_korean_myriad_man_followed_by_date_not_merged(domain):
 def test_normalize_korean_myriad_man_followed_by_year_not_merged():
     from server.guardrail import normalize_korean_myriad
     assert normalize_korean_myriad("3만 5년 후") == "30000 5년 후"
+
+
+def test_flags_answer_that_ignores_active_return(domain):
+    """반품이 진행 중인데 '배송 완료' 만 말하고 그 사실을 빼먹으면 위반이다."""
+    from server.guardrail import VIOLATION_STALE_STATE, check
+
+    tool_results = {"get_order_status": {"order_id": "O-1072", "status": "반품진행",
+                                         "active_process": {"kind": "반품", "return_id": "R-2013",
+                                                            "stage": "수거완료"},
+                                         "events": [{"at": "2026-09-14", "status": "배송 완료"}]}}
+    bad = check("9월 14일에 수도권으로 배송 완료되었습니다.", tool_results, domain)
+    assert not bad.ok and any(v["type"] == VIOLATION_STALE_STATE for v in bad.violations)
+
+    good = check("그 주문은 지금 반품 수거가 끝나 검품을 기다리는 중입니다. 배송 자체는 9월 14일에 완료됐습니다.",
+                 tool_results, domain)
+    assert all(v["type"] != VIOLATION_STALE_STATE for v in good.violations)
+
+
+def test_no_stale_state_flag_without_active_process(domain):
+    """진행 중인 반품이 없으면 배송 완료라고 말해도 위반이 아니다."""
+    from server.guardrail import VIOLATION_STALE_STATE, check
+
+    tool_results = {"get_order_status": {"order_id": "O-1200", "status": "배송완료",
+                                         "active_process": None,
+                                         "events": [{"at": "2026-09-14", "status": "배송 완료"}]}}
+    res = check("9월 14일에 배송 완료되었습니다.", tool_results, domain)
+    assert all(v["type"] != VIOLATION_STALE_STATE for v in res.violations)
