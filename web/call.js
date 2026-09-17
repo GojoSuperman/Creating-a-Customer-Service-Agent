@@ -65,14 +65,16 @@ async function startCall() {
     const s = Math.floor((Date.now() - state.startedAt) / 1000);
     $("clock").textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   }, 500);
-  await say(r.greeting);
+  await say(r.greeting, r.speech);
   listenLoop();
 }
 
-async function say(text) {
+// text 는 말풍선에 그대로 보여줄 원문. speech 는 서버가 낭독용으로 변환해 준 문장(없으면
+// 하위 호환으로 text 를 그대로 읽는다).
+async function say(text, speech) {
   setPhase("SPEAKING");
   addBubble("agent", text);
-  if (!state.textOnly) await voice.speak(text);
+  if (!state.textOnly) await voice.speak(speech || text, { pronounced: !!speech });
 }
 
 async function listenLoop() {
@@ -134,7 +136,7 @@ async function sendTurn(text) {
   panel.addTurn(text, r);
   await fillerDone;                       // 안내 음성이 재생 중이면 끝날 때까지 기다린다
   if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
-  await say(r.answer);
+  await say(r.answer, r.speech);
   if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
   if (r.end_call) { state.busy = false; return endCall("에이전트가 통화를 종료했습니다"); }
   state.busy = false;

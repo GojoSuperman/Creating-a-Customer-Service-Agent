@@ -32,6 +32,38 @@ class BrokenPipeline(FakePipeline):
         raise RuntimeError("LLM 호출 실패")
 
 
+class CountingProductsRepo:
+    """실제 Repo 를 감싸 products() 호출 횟수만 센다(admin/shop 라우터가 요구하는
+    .con 등 다른 속성은 실제 Repo 로 그대로 위임한다)."""
+    def __init__(self, real_repo):
+        self._real = real_repo
+        self.calls = 0
+
+    def products(self):
+        self.calls += 1
+        return self._real.products()
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+class RepoPipeline(FakePipeline):
+    """상품 카탈로그가 있는(=repo 를 가진) 파이프라인. 답변에 실제 DB 상품명(끝에 품번
+    숫자가 붙은 "실버 커프 링 2")이 들어가도록 해 카탈로그 기반 변환을 검증한다."""
+    def __init__(self, domain):
+        super().__init__()
+        from server.repo import Repo
+        self.repo = CountingProductsRepo(Repo(domain.db_path))
+
+    def turn(self, call_id, text, api_key=None):
+        if call_id not in self.calls:
+            raise KeyError(call_id)
+        self.turn_api_keys.append(api_key)
+        return TurnResult(answer="실버 커프 링 2 3개 주문하셨습니다", route="SHIPPING", confidence=0.9,
+                          action="ANSWER", tools=[], guardrail={"ok": True, "violations": []}, elapsed_ms=5,
+                          end_call=False, attempts=1)
+
+
 class KeyLeakPipeline(FakePipeline):
     """예외 메시지에 키 원문이 섞여 나오는 상황을 흉내낸다(예: OpenAI 인증 오류가 키 일부를
     되돌려주는 경우). 전역 예외 핸들러가 이걸 가려야 한다."""
@@ -177,6 +209,65 @@ def test_start_call_accepts_phone(client):
 
 def test_end_call(client):
     assert client.post("/api/call/end", json={"call_id": "abc"}).json() == {"ok": True}
+
+
+def test_start_response_has_speech_field(client):
+    s = client.post("/api/call/start").json()
+    assert "speech" in s and s["speech"]
+    assert s["greeting"] == "안녕하세요"   # 화면용 원문은 그대로
+
+
+def test_turn_response_has_speech_field_and_answer_is_untouched(modumall_dir):
+    domain = load_domain(modumall_dir)
+    c = TestClient(create_app(RepoPipeline(domain), domain))
+    c.post("/api/call/start")
+    r = c.post("/api/call/turn", json={"call_id": "abc", "text": "실버 반지 있어요?"},
+               headers=HEADERS_WITH_KEY).json()
+    assert r["answer"] == "실버 커프 링 2 3개 주문하셨습니다"   # 화면용 원문은 그대로
+    assert "speech" in r and r["speech"]
+    assert "커프 링 2번" in r["speech"]   # 품번은 "N번"으로
+    assert "세 개" in r["speech"]          # 수량은 여전히 고유어로
+    assert "커프 링 두" not in r["speech"]  # 품번을 수량으로 읽지 않는다
+
+
+def test_product_catalog_is_read_from_repo_only_once(modumall_dir):
+    """카탈로그는 요청마다 DB를 훑지 않고 한 번만 읽어 캐시한다."""
+    domain = load_domain(modumall_dir)
+    pipeline = RepoPipeline(domain)
+    c = TestClient(create_app(pipeline, domain))
+    c.post("/api/call/start")
+    for _ in range(3):
+        c.post("/api/call/turn", json={"call_id": "abc", "text": "실버 반지 있어요?"}, headers=HEADERS_WITH_KEY)
+    assert pipeline.repo.calls == 1
+
+
+class SpeechFailingToSpeech:
+    """to_speech 호출 시마다 예외를 던지는 가짜 — 발음 변환 실패 폴백을 검증한다."""
+    def __call__(self, text, product_names=None, today=None):
+        raise RuntimeError("변환 실패")
+
+
+def test_speech_conversion_failure_falls_back_to_raw_text(client, monkeypatch):
+    """to_speech 가 예외를 던져도 통화가 끊기면 안 된다 — speech 는 원문으로 폴백한다."""
+    monkeypatch.setattr("server.app.to_speech", SpeechFailingToSpeech())
+    s = client.post("/api/call/start").json()
+    assert s["speech"] == s["greeting"]   # 변환 실패 → 원문 그대로
+    r = client.post("/api/call/turn", json={"call_id": "abc", "text": "배송비"},
+                    headers=HEADERS_WITH_KEY).json()
+    assert r["speech"] == r["answer"]
+
+
+def test_tts_applies_pronunciation_conversion(modumall_dir):
+    captured = {}
+
+    def fake_tts(text, api_key=None):
+        captured["text"] = text
+        return b"fake-mp3-bytes"
+
+    c = TestClient(create_app(FakePipeline(), load_domain(modumall_dir), tts=fake_tts))
+    r = c.post("/api/tts", json={"text": "14K 반지 3개 있어요"}, headers=HEADERS_WITH_KEY)
+    assert r.status_code == 200
+    assert captured["text"] == "십사케이 반지 세 개 있어요"
 
 
 def test_tts_returns_audio_when_configured(modumall_dir):

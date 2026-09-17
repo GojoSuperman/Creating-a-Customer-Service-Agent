@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """FastAPI 앱. 정적 화면을 서빙하고 통화 API를 제공한다."""
+import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -11,6 +12,9 @@ from pydantic import BaseModel, field_validator
 
 from server.domain import Domain
 from server.llmkey import current_request_key, redact
+from server.pronounce import to_speech
+
+logger = logging.getLogger(__name__)
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -55,6 +59,30 @@ class TurnRequest(BaseModel):
 
 def create_app(pipeline, domain: Domain, tts=None, check_model: str = "gpt-4.1-mini") -> FastAPI:
     app = FastAPI(title=f"{domain.name} 음성 상담 에이전트")
+    repo = getattr(pipeline, "repo", None)
+
+    # 상품명 카탈로그(품번 "N번" 읽기용)는 요청마다 DB 를 훑지 않도록 한 번만 읽어 캐시한다.
+    # None = 아직 안 읽음, list = 캐시된 상품명 목록(빈 리스트도 "읽었다"는 뜻).
+    _product_names_cache: list[str] | None = None
+
+    def _product_names() -> list[str]:
+        nonlocal _product_names_cache
+        if _product_names_cache is None:
+            try:
+                products = repo.products() if repo is not None else []
+                _product_names_cache = [p["name"] for p in products if p.get("name")]
+            except Exception:
+                logger.warning("상품 카탈로그 조회 실패 — 품번 낭독 없이 진행합니다", exc_info=True)
+                _product_names_cache = []
+        return _product_names_cache
+
+    def _safe_speech(text: str) -> str:
+        """낭독용 문장 변환. 실패해도 통화가 끊기면 안 되므로 원문으로 폴백한다."""
+        try:
+            return to_speech(text, product_names=_product_names())
+        except Exception:
+            logger.warning("발음 변환 실패 — 원문을 그대로 사용합니다", exc_info=True)
+            return text
 
     @app.get("/")
     def index():
@@ -74,7 +102,8 @@ def create_app(pipeline, domain: Domain, tts=None, check_model: str = "gpt-4.1-m
         profile = None
         if customer and hasattr(pipeline, "customer_profile"):
             profile = pipeline.customer_profile(customer["customer_id"])
-        return {"call_id": call_id, "greeting": greeting, "customer": customer, "profile": profile}
+        return {"call_id": call_id, "greeting": greeting, "speech": _safe_speech(greeting),
+                "customer": customer, "profile": profile}
 
     @app.post("/api/call/end")
     def end_call(req: EndRequest):
@@ -88,9 +117,11 @@ def create_app(pipeline, domain: Domain, tts=None, check_model: str = "gpt-4.1-m
         if _resolve_key(x_openai_key) is None:
             raise HTTPException(status_code=401, detail=NO_KEY_MESSAGE)
         try:
-            return pipeline.turn(req.call_id, req.text, api_key=x_openai_key).to_dict()
+            result = pipeline.turn(req.call_id, req.text, api_key=x_openai_key).to_dict()
         except KeyError:  # Pipeline.turn에서 call_id 조회 실패만 처리
             raise HTTPException(status_code=404, detail="알 수 없는 call_id 입니다")
+        result["speech"] = _safe_speech(result["answer"])
+        return result
 
     @app.post("/api/tts")
     def synthesize(req: TtsRequest, x_openai_key: Optional[str] = Header(None, alias="X-OpenAI-Key")):
@@ -99,7 +130,7 @@ def create_app(pipeline, domain: Domain, tts=None, check_model: str = "gpt-4.1-m
             raise HTTPException(status_code=501, detail="서버 TTS 가 설정되지 않았습니다")
         if _resolve_key(x_openai_key) is None:
             raise HTTPException(status_code=401, detail=NO_KEY_MESSAGE)
-        return Response(content=tts(req.text, api_key=x_openai_key), media_type="audio/mpeg")
+        return Response(content=tts(_safe_speech(req.text), api_key=x_openai_key), media_type="audio/mpeg")
 
     @app.post("/api/key/check")
     def check_key(x_openai_key: Optional[str] = Header(None, alias="X-OpenAI-Key")):

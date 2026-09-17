@@ -116,21 +116,23 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
   }
 
   // 서버(OpenAI) TTS: mp3 를 받아 재생한다. 실패하면 브라우저 음성으로 한 번 대체한다.
-  async function speakServer(text) {
+  // pronounced=true 면 이미 서버가 낭독용으로 변환한 문장이므로 speakable() 을 다시 적용하지
+  // 않는다(중복 적용 방지 — /api/tts 자체도 서버에서 한 번 더 변환하지만 멱등이라 안전하다).
+  async function speakServer(text, pronounced) {
     if (!text) return;
     if (audio) { try { audio.pause(); } catch (_) {} audio = null; }
     let url;
     try {
       const res = await fetch("/api/tts", {
         method: "POST", headers: { "Content-Type": "application/json", ...getExtraHeaders() },
-        body: JSON.stringify({ text: speakable(text) }),
+        body: JSON.stringify({ text: pronounced ? text : speakable(text) }),
       });
       if (!res.ok) throw new Error(`tts ${res.status}`);
       url = URL.createObjectURL(await res.blob());
     } catch (e) {
       console.warn("서버 TTS 실패, 브라우저 음성으로 대체:", e.message);
       mode = "browser";
-      const p = api.speak(text);
+      const p = api.speak(text, { pronounced });
       mode = "server";
       return p;
     }
@@ -187,12 +189,14 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
       });
     },
 
-    speak(text) {
-      if (mode === "server") return speakServer(text);
+    // { pronounced: true } 는 서버가 이미 낭독용으로 변환한 문장(/api/call/start·turn 의
+    // speech 필드)이라는 뜻 — speakable() 의 식별자 자릿수 읽기를 다시 적용하지 않는다.
+    speak(text, { pronounced = false } = {}) {
+      if (mode === "server") return speakServer(text, pronounced);
       return new Promise((resolve) => {
         if (!synth || !text) return resolve();
         synth.cancel();
-        const u = new SpeechSynthesisUtterance(speakable(text));
+        const u = new SpeechSynthesisUtterance(pronounced ? text : speakable(text));
         u.lang = lang;
         if (voice) u.voice = voice;
         u.rate = 1.0;
