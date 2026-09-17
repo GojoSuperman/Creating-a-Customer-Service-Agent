@@ -46,7 +46,7 @@ python3.12 -m venv .venv
 | 키 없이 됨 | 키가 필요함 |
 |---|---|
 | 서버 기동, 통화 화면·쇼핑몰·어드민 열람 | 실제 통화(LLM 분류·답변 생성) |
-| `pytest` 499건 전부 통과 | LLM 기반 평가(`eval_answer`, `--judge`, `eval_context` 등) |
+| `pytest` 501건 전부 통과 | LLM 기반 평가(`eval_answer`, `--judge`, `eval_context` 등) |
 | 규칙 기반 라우터 평가(`eval_router --rule`, `eval_hard --rule`) | |
 
 즉 `.env`에 `OPENAI_API_KEY`를 채우지 않아도 서버는 정상 기동하고, 화면·쇼핑몰·어드민을 전부
@@ -138,7 +138,7 @@ BYOK 로 키를 넣지 않는 로컬 개발에서) 키가 필요하다. 서버 �
 |---|---|
 | `server/router.py` | 분류 그래프 (classify → gate) |
 | `server/context.py` | 매뉴얼 장 단위 분할, 라우트별 컨텍스트 |
-| `server/tools.py` | 조회 도구 9개 |
+| `server/tools.py` | 도구 10개(조회 9개 + 이관 1개) |
 | `server/answer.py` | 도구 호출 루프 |
 | `server/guardrail.py` | 숫자 출처 역추적, 미확정값 확답 검사 |
 | `server/pipeline.py` | 전체 그래프 + 통화별 체크포인터 |
@@ -225,7 +225,7 @@ PY
 ## 도메인 바꾸기
 
 `domains/<새이름>/`에 `domain.json`, `policy.md`, `mockdb.json`, `eval/`을 같은 스키마로 만들고
-`.env`에 `DOMAIN=<새이름>`. 라우트 이름 5개와 도구 9개, 목 DB 스키마는 고정이다.
+`.env`에 `DOMAIN=<새이름>`. 라우트 이름 5개와 도구 10개(조회 9개 + 이관 1개), 목 DB 스키마는 고정이다.
 
 ## 평가
 
@@ -341,7 +341,7 @@ A/B 재측정으로 좁혀 "프롬프트 규칙 5·6 때문이 아니라 `get_or
 | 쇼핑몰 | `server/shop.py`가 전화번호 로그인·상품 구매를 제공하고, 주문이 실제 DB에 기록되어 그 고객으로 바로 통화를 걸어(발신번호 식별) 이어서 상담받을 수 있다. |
 | BYOK 배포 | Render/Railway 배포에서 서버가 키를 들고 있지 않아도, 방문자가 자기 OpenAI 키를 넣어 통화할 수 있다(`server/llmkey.py`, `X-OpenAI-Key` 헤더). |
 | 시연 데이터 20명 사연 설계 | `/shop` 로그인 화면 예시 고객과 통화 드롭다운에 결정적 사연을 가진 고객 20명을 배치해 시연 시나리오를 재현 가능하게 했다(최근 커밋 `cb94e5a`). |
-| 테스트 499건 | `.venv/bin/pytest -q`로 키 없이 전부 통과 확인. |
+| 테스트 501건 | `.venv/bin/pytest -q`로 키 없이 전부 통과 확인. |
 
 ## 수동 검증 체크리스트
 
