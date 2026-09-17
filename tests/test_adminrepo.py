@@ -74,24 +74,29 @@ def test_returns_filters(admin):
 
 
 def test_calls_list_parses_turns(admin):
+    # 공유 DB(다른 테스트가 call_logs 를 계속 기록해 내용이 바뀐다)는 불변식만 본다.
+    # turns 의 구체적인 내용·특정 call_id 는 하드코딩하지 않는다 — 값 검증은 인메모리 테스트에서.
     rows, total = admin.calls()
     assert total == expected_count(admin, "select count(*) from call_logs")
     assert [r["started_at"] for r in rows] == sorted([r["started_at"] for r in rows], reverse=True)
-
-    # call_id='d64a0e12c1fd' 는 turns 가 비어있지 않은 실제 DB 행이다 (DB 에서 직접 확인).
-    # turns == [{"q": "소재요", "route": "PRODUCT_INFO", ...}] 1개.
-    target = next(r for r in rows if r["call_id"] == "d64a0e12c1fd")
-    assert target["turn_count"] == 1
-    assert target["routes"] == ["PRODUCT_INFO"]
+    for r in rows:
+        assert r["turn_count"] == len(r["turns"])
+        assert isinstance(r["routes"], list)
+        assert len(r["routes"]) == len(set(r["routes"]))  # 중복 없음
 
 
-def test_calls_route_dedup_preserves_order():
-    # 같은 route 가 여러 턴에 반복될 때 중복 제거되는지는 실제 DB 에 그런 데이터가 없으므로
-    # 인메모리 SQLite 에 직접 시드해 검증한다. AdminRepo/adminrepo.py 는 읽기만 하고
-    # 쓰기(insert)는 이 테스트 픽스처 전용이다.
+def _memory_con():
     con = sqlite3.connect(":memory:")
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))
+    return con
+
+
+def test_calls_parses_turns_and_dedups_routes_in_memory():
+    # turn_count·routes 의 구체적인 값과, 같은 route 가 반복될 때 중복 제거되는지는
+    # 내용이 계속 바뀌는 공유 DB 로는 검증할 수 없으므로 인메모리 SQLite 에 직접 시드해 확인한다.
+    # AdminRepo/server/adminrepo.py 자체는 읽기만 하고, insert 는 이 테스트 픽스처 전용이다.
+    con = _memory_con()
     turns = [
         {"q": "1", "route": "PRODUCT_INFO"},
         {"q": "2", "route": "SHIPPING"},
