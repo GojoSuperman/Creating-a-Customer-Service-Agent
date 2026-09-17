@@ -22,7 +22,7 @@
 ```
 server/admin.py        APIRouter. /admin/* 라우트, 쿼리 파라미터 파싱, 템플릿 렌더
 server/adminrepo.py    AdminRepo. 목록·집계·페이징 SQL 전용 (읽기 전용)
-server/templates/      base.html + 페이지 템플릿 9개
+server/templates/      base.html + _paging.html + 페이지 템플릿 10개
 ```
 
 - `server/app.py` `create_app()` 에서 `pipeline.repo` 가 있을 때만 `admin_router(pipeline.repo)` 를 `include_router` 한다. DB 가 없는 도메인(목 JSON만 있는 경우)에서는 어드민을 붙이지 않는다.
@@ -71,7 +71,7 @@ class AdminRepo:                       # server/adminrepo.py
 
 ### 2.3 템플릿
 
-`base.html` 에 상단 네비(홈·주문·반품·통화·고객)와 `{% block %}`. 나머지는 목록 4개·상세 4개·notfound 1개.
+`base.html` 에 상단 네비(홈·주문·반품·통화·고객)와 `{% block %}`. 나머지는 홈 1개·목록 4개·상세 4개·notfound 1개, 페이지네이션 부분 템플릿 `_paging.html` 1개.
 
 - 자동 이스케이프를 켠다(`Jinja2Templates` 기본값이 켜짐 — 끄지 않는다). `|safe` 는 어디에도 쓰지 않는다.
 - 날짜·금액 표기는 기존 `web/panel.js` 규칙을 따른다: `9월 17일`, `12,000원`.
