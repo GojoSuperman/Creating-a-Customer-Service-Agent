@@ -2,7 +2,7 @@
 """어드민 조회 전용 저장소. 읽기 쿼리만 둔다 (쓰기 SQL 금지)."""
 import threading
 
-from server.repo import _row, normalize_phone
+from server.repo import _row
 
 PAGE_SIZE = 20
 # 종결되지 않은 주문. 홈의 "진행중 주문" 집계에 쓴다.
@@ -39,6 +39,11 @@ class AdminRepo:
     def _where(cond):
         return ("where " + " and ".join(cond)) if cond else ""
 
+    @staticmethod
+    def _end_of_day(date_to):
+        # 이미 시각(T)을 포함한 값이면 그대로 쓰고, 날짜만이면 그날 끝을 붙인다
+        return date_to if "T" in date_to else f"{date_to}T23:59:59"
+
     # ── 목록 ────────────────────────────────────────────
     def orders(self, *, status=None, customer_id=None, date_from=None, date_to=None, page=1, size=PAGE_SIZE):
         cond, params = [], []
@@ -49,13 +54,13 @@ class AdminRepo:
         if date_from:
             cond.append("o.ordered_at >= ?"); params.append(date_from)
         if date_to:
-            # 날짜만 받으므로 그날 끝까지 포함시킨다
-            cond.append("o.ordered_at <= ?"); params.append(f"{date_to}T23:59:59")
+            # 날짜만 받으면 그날 끝까지 포함시키고, 이미 시각이 있으면 그대로 쓴다
+            cond.append("o.ordered_at <= ?"); params.append(self._end_of_day(date_to))
         select = ("select o.order_id, o.ordered_at, o.status, o.status_detail, o.order_amount, "
                   "o.customer_id, o.return_id, c.name as customer_name "
                   "from orders o left join customers c on c.customer_id = o.customer_id")
         return self._page(select, "select count(*) from orders o", self._where(cond), tuple(params),
-                           "order by o.ordered_at desc", page, size)
+                           "order by o.ordered_at desc, o.order_id desc", page, size)
 
     def returns(self, *, stage=None, type=None, page=1, size=PAGE_SIZE):
         cond, params = [], []
@@ -68,14 +73,14 @@ class AdminRepo:
                   "left join orders o on o.order_id = r.order_id "
                   "left join customers c on c.customer_id = o.customer_id")
         return self._page(select, "select count(*) from returns r", self._where(cond), tuple(params),
-                           "order by r.requested_at desc", page, size)
+                           "order by r.requested_at desc, r.return_id desc", page, size)
 
     def calls(self, *, page=1, size=PAGE_SIZE):
         select = ("select l.call_id, l.customer_id, l.started_at, l.ended_at, l.turns, "
                   "c.name as customer_name from call_logs l "
                   "left join customers c on c.customer_id = l.customer_id")
         rows, total = self._page(select, "select count(*) from call_logs l", "", (),
-                                  "order by l.started_at desc", page, size)
+                                  "order by l.started_at desc, l.call_id desc", page, size)
         for r in rows:
             turns = r.get("turns") or []
             r["turn_count"] = len(turns)
@@ -92,8 +97,9 @@ class AdminRepo:
         if q:
             escaped = self._like_escape(q)
             escaped_digits = self._like_escape(q.replace("-", ""))
-            cond.append("(name like ? escape '\\' or phone = ? or replace(phone,'-','') like ? escape '\\')")
-            params += [f"%{escaped}%", normalize_phone(q), f"%{escaped_digits}%"]
+            # phone = ? (정규화 정확 일치) 은 아래 replace(...) like ? 에 완전히 포함되므로 제거했다
+            cond.append("(name like ? escape '\\' or replace(phone,'-','') like ? escape '\\')")
+            params += [f"%{escaped}%", f"%{escaped_digits}%"]
         return self._page("select customer_id, name, phone, address_region, joined_at from customers",
                            "select count(*) from customers", self._where(cond), tuple(params),
                            "order by customer_id", page, size)

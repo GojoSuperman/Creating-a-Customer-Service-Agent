@@ -62,6 +62,44 @@ def test_orders_paging_boundaries(admin):
     assert [r["order_id"] for r in rows_zero] == [r["order_id"] for r in rows_one]
 
 
+def test_orders_filter_by_date_to_with_time_is_not_appended(admin):
+    # date_to 에 이미 시각(T)이 있으면 그대로 써야 한다. 날짜만 붙이는 로직이 남아 있으면
+    # "...T10:40:00T23:59:59" 가 되어 조용히 그날 전체(10:57 등 이후 주문)가 포함된다.
+    # 실측: 2026-09-10 에는 08:50~22:54 사이 주문이 여러 건 있고, 10:40:00 과 10:57:00 사이가
+    # 정확히 걸쳐 있어 경계 검증에 쓸 수 있다.
+    rows, total = admin.orders(date_from="2026-09-10", date_to="2026-09-10T10:40:00")
+    assert total == expected_count(
+        admin, "select count(*) from orders where ordered_at >= ? and ordered_at <= ?",
+        "2026-09-10", "2026-09-10T10:40:00")
+    assert all(r["ordered_at"] <= "2026-09-10T10:40:00" for r in rows)
+    assert any(r["ordered_at"] == "2026-09-10T10:40:00" for r in rows)
+    assert not any(r["ordered_at"] == "2026-09-10T10:57:00" for r in rows)
+
+    # 날짜만 준 경우는 기존처럼 그날 끝(23:59:59)까지 포함되어야 한다
+    rows_date_only, _ = admin.orders(date_from="2026-09-10", date_to="2026-09-10")
+    assert any(r["ordered_at"] == "2026-09-10T22:54:00" for r in rows_date_only)
+
+
+@pytest.mark.parametrize("method, id_key", [("orders", "order_id"), ("returns", "return_id")])
+def test_list_paging_covers_all_rows_without_gap_or_dup_on_ties(admin, method, id_key):
+    # orders.ordered_at, returns.requested_at 모두 동점(중복 값) 그룹이 실제로 존재한다.
+    # tiebreaker(2차 정렬키)가 없으면 SQLite 가 동점 행 순서를 보장하지 않아
+    # 페이지 경계에서 행이 누락되거나 중복될 수 있다. 전체 페이지를 순회해
+    # 모은 id 집합이 전체 건수와 일치하고 중복이 없는지로 이를 검증한다.
+    fn = getattr(admin, method)
+    _, total = fn(page=1)
+    seen = []
+    page = 1
+    while True:
+        rows, _ = fn(page=page)
+        if not rows:
+            break
+        seen.extend(r[id_key] for r in rows)
+        page += 1
+    assert len(seen) == total
+    assert len(set(seen)) == total
+
+
 def test_returns_filters(admin):
     rows, total = admin.returns(stage="검품중")
     assert total == expected_count(admin, "select count(*) from returns where stage=?", "검품중")
