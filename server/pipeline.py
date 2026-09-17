@@ -121,6 +121,22 @@ _ENDING_HARD_FAREWELLS = (
 # 오판된다. 그래서 core 가 목록 문구와 "공백만 무시하고 완전히 같을 때"만 매칭한다 —
 # 앞뒤로 다른 내용이 남아 있으면 매칭하지 않는다. 어미 변이(알겠어요/알겠네요 등)는
 # 목록에 변이별로 다 적어 두는 방식으로 허용한다(정규식 형태소 분석 대신).
+# 텍스트 입력창("말하기 대신 입력하려면...")으로 치는 발화는 "알겠습니다." 처럼 끝에
+# 마침표를 붙이는 게 자연스럽다(음성 인식 결과엔 구두점이 거의 없지만). 완전 일치
+# 매칭이라 이 부호 하나 때문에 못 잡으면(미탐) 안 되므로 끝에서부터 지운다. "?"는
+# 절대 넣지 않는다 — 물음표는 classify_call_ending 이 먼저 별도로 걸러내는 가드라,
+# 여기서 지워버리면 "들어가세요?" 같은 정상 질문이 다시 종료로 오판될 수 있다.
+_TRAILING_PUNCT_CHARS = set(".!~…,·")
+
+
+def _strip_trailing_punct(text: str) -> str:
+    """끝에 붙은 문장부호(와 그 사이 공백)를 반복해서 지운다("알겠습니다 ..." 도 처리)."""
+    t = text.strip()
+    while t and (t[-1] in _TRAILING_PUNCT_CHARS or t[-1].isspace()):
+        t = t[:-1]
+    return t
+
+
 def _ending_core(text: str) -> str:
     """공백만 정규화한 매칭용 문자열(필러 제거 없음)."""
     return re.sub(r"\s+", "", text.strip())
@@ -149,8 +165,12 @@ def classify_call_ending(text: str, prev_answer: Optional[str]) -> Optional[str]
     """
     if not prev_answer:
         return None
+    # 물음표 가드는 문장부호 정리보다 먼저 원문 그대로 봐야 한다 — "재입고 언제
+    # 들어가세요?" 처럼 끝에 붙은 "?"가 정상 질문의 신호이기 때문이다("?"는 아래
+    # _strip_trailing_punct 대상에서 뺐다).
     if "?" in text or re.search(ASK_PATTERN, text):
         return None
+    text = _strip_trailing_punct(text)  # 텍스트 입력창은 "알겠습니다." 처럼 마침표를 붙인다
     is_closing_question = bool(re.search(_CLOSING_QUESTION_PATTERN, prev_answer))
     # 필러를 지우기 전(발화 그대로)과 지운 뒤, 두 형태 모두 "완전 일치"로만 본다.
     # 필러 제거본을 따로 두는 건 "음, 알겠습니다" 같은, 목록에 다 적어 두지 않은

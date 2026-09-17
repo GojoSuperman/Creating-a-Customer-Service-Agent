@@ -871,6 +871,31 @@ def test_trailing_new_business_after_ending_phrase_is_not_classified(text, prev)
     assert classify_call_ending(text, prev) is None
 
 
+# ── 끝에 붙은 문장부호("." "~" "…" 등) 때문에 완전 일치가 미탐하지 않게 ───────────
+
+@pytest.mark.parametrize("text,prev,expected", [
+    ("알겠습니다.", "배송은 2~3일 소요됩니다.", "SOFT"),
+    ("없습니다.", _CLOSING_QUESTION, "SOFT"),
+    ("수고하세요~", "배송은 2~3일 소요됩니다.", "HARD"),
+    ("감사합니다...", "배송은 2~3일 소요됩니다.", "SOFT"),
+])
+def test_trailing_punctuation_does_not_block_classification(text, prev, expected):
+    """텍스트 입력창으로 치면 자연스레 마침표가 붙는다 — 끝 문장부호 때문에 완전 일치
+    매칭이 놓치면 안 된다(미탐 방지)."""
+    assert classify_call_ending(text, prev) == expected
+
+
+def test_question_mark_guard_still_wins_over_punctuation_stripping():
+    """물음표 가드는 문장부호 정리보다 먼저 원문으로 판정한다 — '?' 를 지워버리면
+    정상 질문이 다시 종료로 새어 들어온다(회귀 방지)."""
+    assert classify_call_ending("재입고 언제 들어가세요?", "배송은 2~3일 소요됩니다.") is None
+
+
+def test_negation_guard_survives_trailing_punctuation():
+    """부정어 가드는 끝 문장부호를 지운 뒤에도 살아 있어야 한다."""
+    assert classify_call_ending("안 괜찮아요.", _CLOSING_QUESTION) is None
+
+
 def test_closing_question_then_confirm_does_not_end_call(domain, settings):
     """종결 질문 뒤 '네 맞아요' → 종료 아님(기존 흐름)."""
     ans = FakeAnswerer([
