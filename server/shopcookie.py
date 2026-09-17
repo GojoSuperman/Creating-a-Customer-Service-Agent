@@ -9,6 +9,8 @@ import secrets
 
 MAX_CART_LINES = 20
 MAX_QTY = 99
+MAX_PRODUCT_ID_LEN = 40
+MAX_OPTION_LEN = 80
 
 _EPHEMERAL = None
 
@@ -33,14 +35,15 @@ def _b64d(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
-def sign(value: str) -> str:
-    payload = _b64e(value.encode("utf-8"))
+def sign(value: str, purpose: str) -> str:
+    """purpose 를 값에 묶어 서명한다 — 한 용도(예: 세션)로 만든 토큰이 다른 용도(예: 장바구니)로 재사용되지 못하게."""
+    payload = _b64e(f"{purpose}:{value}".encode("utf-8"))
     mac = hmac.new(_secret(), payload.encode("ascii"), hashlib.sha256).digest()
     return f"{payload}.{_b64e(mac)}"
 
 
-def unsign(token):
-    """서명이 맞으면 원래 값, 아니면 None. 예외를 던지지 않는다."""
+def unsign(token, purpose):
+    """서명이 맞고 purpose 도 일치해야 원래 값, 아니면 None. 예외를 던지지 않는다."""
     if not token or "." not in token:
         return None
     payload, mac = token.rsplit(".", 1)
@@ -48,18 +51,22 @@ def unsign(token):
         expected = hmac.new(_secret(), payload.encode("ascii"), hashlib.sha256).digest()
         if not hmac.compare_digest(_b64d(mac), expected):
             return None
-        return _b64d(payload).decode("utf-8")
+        text = _b64d(payload).decode("utf-8")
     except (ValueError, UnicodeDecodeError):
         return None
+    prefix = f"{purpose}:"
+    if not text.startswith(prefix):
+        return None
+    return text[len(prefix):]
 
 
 def dump_cart(items) -> str:
-    return sign(json.dumps(items, ensure_ascii=False, separators=(",", ":")))
+    return sign(json.dumps(items, ensure_ascii=False, separators=(",", ":")), "cart")
 
 
 def load_cart(token):
     """서명·형식이 조금이라도 이상하면 빈 장바구니로 돌려준다 (오류 화면 대신)."""
-    raw = unsign(token)
+    raw = unsign(token, "cart")
     if not raw:
         return []
     try:
@@ -70,12 +77,20 @@ def load_cart(token):
         return []
     out = []
     for item in items[:MAX_CART_LINES]:
-        if not isinstance(item, dict) or not item.get("product_id"):
+        if not isinstance(item, dict):
+            continue
+        product_id = item.get("product_id")
+        if not isinstance(product_id, str) or not product_id:
             continue
         qty = item.get("qty")
         if not isinstance(qty, int) or isinstance(qty, bool):
             continue
-        out.append({"product_id": str(item["product_id"]),
-                    "option": item.get("option") or None,
+        option = item.get("option")
+        if not isinstance(option, str) or not option:
+            option = None
+        else:
+            option = option[:MAX_OPTION_LEN]
+        out.append({"product_id": product_id[:MAX_PRODUCT_ID_LEN],
+                    "option": option,
                     "qty": max(1, min(MAX_QTY, qty))})
     return out
