@@ -140,9 +140,16 @@ class ShopRepo:
             # 그것을 건드리지 않고 그 안에 SAVEPOINT 만 얹는다. 우리가 트랜잭션을 새로
             # 연 경우에만 우리가 커밋·롤백까지 책임진다.
             outermost = not self.con.in_transaction
-            if outermost:
-                self.con.execute("begin immediate")
-            self.con.execute("savepoint shop_order")
+            try:
+                if outermost:
+                    self.con.execute("begin immediate")
+                self.con.execute("savepoint shop_order")
+            except Exception:
+                # begin/savepoint 자체가 실패해도 우리가 연 트랜잭션이면 누수 없이 정리한다.
+                # 남의 트랜잭션(outermost=False)이면 아무것도 되돌리지 않고 그대로 전파한다.
+                if outermost and self.con.in_transaction:
+                    self.con.rollback()
+                raise
             try:
                 customer = self.repo.customer(customer_id)
                 if customer is None:
@@ -201,10 +208,21 @@ class ShopRepo:
                     self.con.commit()
                 return order_id
             except Exception:
-                self.con.execute("rollback to shop_order")
-                self.con.execute("release shop_order")
+                # 정리 문장 자체가 실패해도(예: 트랜잭션이 이미 끝나 "no such savepoint") 그
+                # 정리 실패가 아니라 원래 예외를 그대로 전파해야 한다 — 각각 조용히 삼킨다.
+                try:
+                    self.con.execute("rollback to shop_order")
+                except Exception:
+                    pass
+                try:
+                    self.con.execute("release shop_order")
+                except Exception:
+                    pass
                 if outermost:
-                    self.con.rollback()
+                    try:
+                        self.con.rollback()
+                    except Exception:
+                        pass
                 raise
 
     def orders_of(self, customer_id):

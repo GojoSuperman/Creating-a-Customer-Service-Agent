@@ -373,6 +373,53 @@ def test_create_order_uses_savepoint_not_forced_commit_of_outer_transaction(memo
     assert memory_shop.con.execute("select count(*) from customers where customer_id='C-EXT'").fetchone()[0] == 0
 
 
+def test_create_order_nested_rollback_removes_partial_write_before_outer_commit(memory_shop):
+    """[리뷰 라운드2] 중첩 트랜잭션(outermost=False) 안에서 '쓰기 이후'에 실패하는 경우를 검증한다.
+    품절처럼 쓰기 전에 걸리는 실패만으로는 SAVEPOINT 의 부분 롤백(rollback to)이 실제로 동작하는지
+    확인할 수 없다 — 라운드1 의 test_create_order_uses_savepoint_... 는 품절(쓰기 전 실패)만 썼다.
+    여기서는 첫 줄은 실제 재고로 성공(주문·품목·재고 차감까지 실행)한 뒤 둘째 줄에서 실제 재고
+    부족으로 rowcount 가드가 걸리게 해 '쓰기 이후 실패'를 만들고, 외부가 이어서 커밋해도 우리
+    흔적(주문·품목·재고 차감)이 전혀 남지 않아야 함을 확인한다."""
+    from server.shoprepo import OrderError
+
+    # 외부가 먼저 트랜잭션을 열어 둔 상태를 흉내 낸다(암묵적 트랜잭션, 아직 커밋 전).
+    memory_shop.con.execute(
+        "insert into customers values ('C-EXT2','외부2','010-1234-5678','수도권','외부 2','2024-04-04')")
+    assert memory_shop.con.in_transaction is True
+
+    before_orders = memory_shop.con.execute("select count(*) from orders").fetchone()[0]
+
+    real_product = memory_shop.repo.product
+
+    def stale_product(product_id):
+        row = real_product(product_id)
+        if row is None or product_id != "P1":
+            return row
+        d = dict(row)
+        d["stock"] = 999  # 합산 사전검증만 부풀려서 통과시킨다(실제 DB 재고는 5 그대로)
+        return d
+
+    memory_shop.repo.product = stale_product
+    try:
+        with pytest.raises(OrderError):
+            # 첫 줄(qty=2)은 실제 재고(5)로 성공해 order·첫 order_items·재고 차감까지 실행된 뒤,
+            # 둘째 줄(qty=10)이 실제 재고 부족으로 rowcount 가드에 걸린다 — "쓰기 이후 실패".
+            memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 2},
+                                                {"product_id": "P1", "option": None, "qty": 10}])
+    finally:
+        memory_shop.repo.product = real_product
+
+    # 외부 트랜잭션은 여전히 열려 있다(우리가 임의로 롤백하지 않았다) — 외부가 이어서 커밋한다.
+    assert memory_shop.con.in_transaction is True
+    memory_shop.con.commit()
+
+    assert memory_shop.con.execute("select count(*) from orders").fetchone()[0] == before_orders
+    assert memory_shop.con.execute("select count(*) from order_items").fetchone()[0] == 0
+    assert memory_shop.con.execute("select stock from products where product_id='P1'").fetchone()[0] == 5
+    assert memory_shop.con.execute(
+        "select count(*) from customers where customer_id='C-EXT2'").fetchone()[0] == 1  # 외부 작업은 정상 커밋됨
+
+
 def test_create_order_executes_savepoint_statements(memory_shop):
     """savepoint/release 문이 실제로 실행되는지 SQL 을 가로채 확인한다."""
     real_con = memory_shop.con
