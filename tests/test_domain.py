@@ -74,3 +74,23 @@ def test_missing_always_section_is_explicit(tmp_path, modumall_dir):
     with pytest.raises(DomainError) as e:
         load_domain(tmp_path)
     assert "99" in str(e.value)
+
+
+def test_synonym_value_must_exist_in_catalog(tmp_path, modumall_dir):
+    for f in ("domain.json", "policy.md", "mockdb.json"):
+        (tmp_path / f).write_bytes((modumall_dir / f).read_bytes())
+    cfg = json.loads((tmp_path / "domain.json").read_text(encoding="utf-8"))
+    cfg["search"]["synonyms"]["후드"] = "후드티"
+    (tmp_path / "domain.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(DomainError) as e:
+        load_domain(tmp_path)
+    assert "search.synonyms['후드']" in str(e.value)
+
+
+def test_null_synonym_is_not_validated(tmp_path, modumall_dir):
+    for f in ("domain.json", "policy.md", "mockdb.json"):
+        (tmp_path / f).write_bytes((modumall_dir / f).read_bytes())
+    cfg = json.loads((tmp_path / "domain.json").read_text(encoding="utf-8"))
+    cfg["search"]["synonyms"]["수영복"] = None
+    (tmp_path / "domain.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    load_domain(tmp_path)   # 예외 없음

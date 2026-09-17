@@ -257,3 +257,31 @@ def test_speech_misrecognition_is_matched_by_jamo(tools):
 
 def test_jamo_does_not_overmatch(tools):
     assert tools["search_product"]("가방끈")["candidates"] == []
+
+
+def test_synonym_with_particle_resolves(tools):
+    # 실측(2026-09-17): 카탈로그의 티셔츠 상품은 '기본 티셔츠'(P3004) 하나. 현재 "티는"은 빈 후보다.
+    for q in ("티는", "티만", "티도"):
+        r = tools["search_product"](q)
+        assert r["resolved_product_id"] == "P3004", (q, r)
+
+
+def test_compound_tshirt_words_resolve(tools):
+    for q in ("반팔티", "무지티", "긴팔티"):
+        r = tools["search_product"](q)
+        assert r["resolved_product_id"] == "P3004", (q, r)
+
+
+def test_short_query_skips_fuzzy_fallback(modumall_dir, monkeypatch):
+    # 유사도를 항상 0.99 로 만들어도 두 글자 이하 질의는 폴백을 타지 않고, 세 글자부터는 탄다
+    import server.tools as tm
+    monkeypatch.setattr(tm, "jamo_ratio", lambda a, b: 0.99)
+    tools = tm.make_tools(load_domain(modumall_dir))
+    r2 = tools["search_product"]("ㅋㅋ")
+    assert r2["candidates"] == [] and r2["not_in_catalog"] is False
+    r3 = tools["search_product"]("ㅋㅋㅋ")
+    assert r3["candidates"] and r3["candidates"][0]["score"] < 1.0
+
+
+def test_three_char_typo_still_uses_fallback(tools):
+    assert tools["search_product"]("켄버스화")["resolved_product_id"] == "P4001"

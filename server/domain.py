@@ -84,6 +84,14 @@ def load_domain(path: Path) -> Domain:
         unknown = [i for i in ids if i not in product_ids]
         if unknown:
             raise DomainError(f"search.aliases['{alias}'] 에 없는 상품 ID: {unknown}")
+    # 동의어 값은 실제 상품명 안에 있어야 한다. 없으면 치환 결과가 늘 빈 후보라 조용히 실패한다.
+    # 값이 null 인 항목은 '취급하지 않는 상품' 표시이므로 검증 대상이 아니다.
+    flat_names = [p["name"].replace(" ", "") for p in mockdb["products"]]
+    for key, value in search["synonyms"].items():
+        if value is None:
+            continue
+        if not any(value.replace(" ", "") in n for n in flat_names):
+            raise DomainError(f"search.synonyms['{key}'] 값 '{value}' 이 어떤 상품명에도 없음")
 
     from server.db.generate import generate
     db_path = generate(path)  # 없으면 만들고, 있으면 그대로

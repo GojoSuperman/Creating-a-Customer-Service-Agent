@@ -92,21 +92,9 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
         if not qt:
             return {"query": query, "candidates": [], "resolved_product_id": None, "ambiguous": False,
                     "category_query": False, "not_in_catalog": False}
-        # 1) 동의어 치환. 값이 None 이면 취급하지 않는 범주다
-        tokens = []
-        for t in qt:
-            if t in synonyms:
-                if synonyms[t] is None:
-                    return {"query": query, "candidates": [], "resolved_product_id": None,
-                            "ambiguous": False, "category_query": False, "not_in_catalog": True,
-                            "note": "취급하지 않는 상품입니다."}
-                tokens.append(synonyms[t].replace(" ", ""))
-            else:
-                tokens.append(t)
-        qt = tokens
-
-        # 범주어 토큰 판별. 정확히 같거나, 뒤에 흔한 조사만 붙은 형태("신발도")까지 인정한다.
+        # 토큰 일치 판별. 정확히 같거나, 뒤에 흔한 조사만 붙은 형태("신발도")까지 인정한다.
         # 단순 부분 문자열 포함은 "가방끈"처럼 다른 낱말을 오인식하므로 조사 화이트리스트로 제한한다.
+        # 동의어 치환과 범주어 판별이 함께 쓰므로 두 단계보다 앞에서 정의한다.
         _particles = ("도", "는", "은", "이", "가", "을", "를", "만", "로", "으로")
 
         def _alias_match(key: str, token: str) -> bool:
@@ -115,6 +103,28 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
             if token.startswith(key):
                 return token[len(key):] in _particles
             return False
+
+        # 1) 동의어 치환. 값이 None 이면 취급하지 않는 범주다
+        def _synonym_key(token: str):
+            if token in synonyms:
+                return token
+            for k in synonyms:
+                if _alias_match(k, token):     # "티는"→"티", 조사 화이트리스트만 허용
+                    return k
+            return None
+
+        tokens = []
+        for t in qt:
+            k = _synonym_key(t)
+            if k is not None:
+                if synonyms[k] is None:
+                    return {"query": query, "candidates": [], "resolved_product_id": None,
+                            "ambiguous": False, "category_query": False, "not_in_catalog": True,
+                            "note": "취급하지 않는 상품입니다."}
+                tokens.append(synonyms[k].replace(" ", ""))
+            else:
+                tokens.append(t)
+        qt = tokens
 
         alias_tokens = []
         for t in qt:
@@ -133,9 +143,8 @@ def make_tools(domain: Domain) -> dict[str, Callable]:
                 # '팬티'가 '요일팬티'에 들어 있다는 이유로 무관한 상품까지 동점으로 만들어 제외한다
                 overlap = sum(1 for t in qt if t in flat or any(t in x for x in nt))
                 score = overlap / len(qt)
-                if score == 0:
-                    # 오타 보정: 공백 제거 문자열 유사도
-                    # 글자 단위 유사도, 그것도 안 되면 자모 단위 유사도(음성 인식 오류 대응)
+                if score == 0 and len(flat_q) >= 3:
+                    # 오타 보정: 공백 제거 문자열 유사도. 두 글자 이하는 우연한 유사도가 0.6 을 넘기 쉬워 건너뛴다
                     ratio = max(difflib.SequenceMatcher(None, flat_q, flat).ratio(),
                                 jamo_ratio(flat_q, flat))
                     if ratio >= 0.6:
