@@ -18,13 +18,14 @@ export function createPanel(root) {
         ? (r.guardrail.ok ? `<span class="ok">통과</span>` : `<span class="bad">위반</span> ${r.guardrail.violations.map(v => esc(v.type + ": " + v.detail)).join("<br>")}`)
         : `<span class="muted">검사 안 함</span>`;
       const retryBadge = retried ? `<span class="badge badge-bad">재시도 ${esc(r.attempts)}회</span>` : "";
+      const endCallBadge = r.end_call ? `<span class="badge">통화 종료</span>` : "";
       const card = document.createElement("article");
       card.className = "turn" + (bad ? " turn-bad" : "");
       card.innerHTML = `
         <div class="q">고객: ${esc(question)}</div>
         <div class="row"><b>라우트</b> ${esc(r.route || "-")} <span class="${low ? "bad" : ""}">conf ${r.confidence == null ? "-" : r.confidence.toFixed(2)}</span>
           ${r.route_alt ? `<span class="muted">2순위 ${esc(r.route_alt)} ${Number(r.alt_confidence || 0).toFixed(2)}</span>` : ""}
-          <span class="badge ${bad ? "badge-bad" : ""}">${esc(r.action)}</span>${retryBadge}</div>
+          <span class="badge ${bad ? "badge-bad" : ""}">${esc(r.action)}</span>${retryBadge}${endCallBadge}</div>
         <div class="row"><b>도구</b><ul>${tools}</ul></div>
         <div class="row"><b>가드레일</b> ${guard}</div>
         <div class="row muted">${esc(r.elapsed_ms)} ms</div>

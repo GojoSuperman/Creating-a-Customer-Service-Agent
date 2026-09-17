@@ -696,3 +696,235 @@ def test_router_cache_does_not_store_raw_api_key(domain, settings, monkeypatch):
     secret_key = "sk-super-secret-value-12345"
     p._router_for(secret_key)
     assert secret_key not in p._router_cache._data
+
+
+# ── 통화 종료 발화 판정 ──────────────────────────────────────────────
+
+class _RefusingRouter:
+    """LLM 을 호출하면 테스트를 실패시킨다(종료 판정은 라우터를 아예 건드리면 안 된다)."""
+
+    def invoke(self, state):
+        raise AssertionError("종료 턴에서 라우터가 호출되면 안 됩니다")
+
+
+class _RefusingAnswerer:
+    """LLM 을 호출하면 테스트를 실패시킨다(종료 판정은 답변기를 아예 건드리면 안 된다)."""
+
+    def answer(self, *args, **kwargs):
+        raise AssertionError("종료 턴에서 답변기가 호출되면 안 됩니다")
+
+
+@pytest.fixture
+def no_llm_pipeline(domain, settings):
+    return Pipeline(domain, settings, router=_RefusingRouter(), answerer=_RefusingAnswerer())
+
+
+def test_closing_question_then_no_more_is_soft(domain, settings):
+    """종결 질문 뒤 '없습니다' → SOFT(마무리 인사, 통화 유지), LLM 미호출."""
+    ans = FakeAnswerer([("사은품이 있었다면 함께 보내주셔야 합니다. 추가로 궁금하신 점 있으실까요?",
+                         {}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "RETURN_REFUND", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "반품하고 싶어요")
+
+    # 이 턴부터는 LLM 이 절대 불리면 안 된다 — router/answerer 를 거부형으로 바꿔 재확인한다.
+    p.router = _RefusingRouter()
+    p.answerer = _RefusingAnswerer()
+    r = p.turn(cid, "없습니다")
+
+    assert r.end_call is False
+    assert r.answer == domain.soft_closing_message
+    assert r.action == "ANSWER"
+    assert r.route is None
+    assert r.tools == []
+    assert r.guardrail is None
+
+
+def test_closing_question_then_no_more_variant_is_soft(domain, settings):
+    """종결 질문 뒤 '딱히 없어요' → SOFT, 마무리 인사, end_call=False, LLM 미호출."""
+    ans = FakeAnswerer([("사은품이 있었다면 함께 보내주셔야 합니다. 추가로 궁금하신 점 있으실까요?",
+                         {}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "RETURN_REFUND", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "반품하고 싶어요")
+
+    p.router = _RefusingRouter()
+    p.answerer = _RefusingAnswerer()
+    r = p.turn(cid, "딱히 없어요")
+
+    assert r.end_call is False
+    assert r.answer == domain.soft_closing_message
+
+
+def test_confirm_question_no_more_stays_in_normal_flow(domain, settings):
+    """종결 질문이 아닌 확인 질문('사은품 있으셨나요?') 뒤 '없어요' → 종료 판정 없음(기존 흐름)."""
+    ans = FakeAnswerer([
+        ("사은품이 있었다면 함께 보내주셔야 합니다. 사은품 있으셨나요?", {}, []),
+        ("네, 확인해 드리겠습니다.", {}, []),
+    ])
+    p = Pipeline(domain, settings, router=router_with(domain, "RETURN_REFUND", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "반품하고 싶어요")
+    r = p.turn(cid, "없어요")
+
+    assert r.end_call is False
+    assert r.answer == "네, 확인해 드리겠습니다."  # 답변기가 실제로 불렸다(종료 판정에 가로채이지 않음)
+
+
+def test_closing_question_then_confirm_does_not_end_call(domain, settings):
+    """종결 질문 뒤 '네 맞아요' → 종료 아님(기존 흐름)."""
+    ans = FakeAnswerer([
+        ("사은품이 있었다면 함께 보내주셔야 합니다. 추가로 궁금하신 점 있으실까요?", {}, []),
+        ("네, 확인해 드리겠습니다.", {}, []),
+    ])
+    p = Pipeline(domain, settings, router=router_with(domain, "RETURN_REFUND", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "반품하고 싶어요")
+    r = p.turn(cid, "네 맞아요")
+
+    assert r.end_call is False
+
+
+def test_confirm_question_then_yes_does_not_end_call(domain, settings):
+    """확인 되묻기 뒤 '네 맞아요' → 종료 아님."""
+    ans = FakeAnswerer([
+        ("미니멀 볼 귀걸이 맞으실까요?", {}, []),
+        ("네, 확인해 드리겠습니다.", {}, []),
+    ])
+    p = Pipeline(domain, settings, router=router_with(domain, "PRODUCT_INFO", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "귀걸이 문의드려요")
+    r = p.turn(cid, "네 맞아요")
+
+    assert r.end_call is False
+
+
+def test_any_answer_then_understood_is_soft(domain, settings):
+    """아무 답변 뒤 '알겠습니다' → SOFT(종료 아님, 마무리 인사)."""
+    ans = FakeAnswerer([("배송은 2~3일 소요됩니다.", {}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "배송 얼마나 걸려요?")
+
+    p.router = _RefusingRouter()
+    p.answerer = _RefusingAnswerer()
+    r = p.turn(cid, "알겠습니다")
+
+    assert r.end_call is False
+    assert r.answer == domain.soft_closing_message
+
+
+def test_bare_thanks_is_soft(domain, settings):
+    """단독 '감사합니다' → SOFT(종료 아님) — 통화 중간에 고마움만 표하는 경우가 흔하다."""
+    ans = FakeAnswerer([("배송은 2~3일 소요됩니다.", {}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "배송 얼마나 걸려요?")
+
+    p.router = _RefusingRouter()
+    p.answerer = _RefusingAnswerer()
+    r = p.turn(cid, "감사합니다")
+
+    assert r.end_call is False
+    assert r.answer == domain.soft_closing_message
+
+
+def test_farewell_after_thanks_is_hard(domain, settings):
+    """'감사합니다 수고하세요' → HARD(통화 종료) — 작별어가 붙으면 C군이 B군보다 우선한다."""
+    ans = FakeAnswerer([("배송은 2~3일 소요됩니다.", {}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "배송 얼마나 걸려요?")
+
+    p.router = _RefusingRouter()
+    p.answerer = _RefusingAnswerer()
+    r = p.turn(cid, "감사합니다 수고하세요")
+
+    assert r.end_call is True
+    assert r.answer == domain.closing_message
+
+
+def test_bare_farewell_is_hard(domain, settings):
+    """'수고하세요' → HARD(통화 종료), 작별 인사, LLM 미호출."""
+    ans = FakeAnswerer([("배송은 2~3일 소요됩니다.", {}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "배송 얼마나 걸려요?")
+
+    p.router = _RefusingRouter()
+    p.answerer = _RefusingAnswerer()
+    r = p.turn(cid, "수고하세요")
+
+    assert r.end_call is True
+    assert r.answer == domain.closing_message
+    assert r.action == "ANSWER"
+    assert r.tools == []
+    assert r.guardrail is None
+
+
+def test_first_utterance_thanks_does_not_end_call(no_llm_pipeline, domain):
+    """통화 첫 발화 '감사합니다' → 판정 없음(직전 답변이 없으므로, 기존 흐름대로 LLM 이 불린다)."""
+    p = no_llm_pipeline
+    cid, _, _ = p.start_call()
+    with pytest.raises(AssertionError):
+        p.turn(cid, "감사합니다")
+
+
+def test_no_more_with_trailing_new_question_stays_in_normal_flow(domain, settings):
+    """'없습니다. 그런데 배송은 언제 오나요?' 처럼 새 질문이 붙으면 판정 없음(기존 흐름)."""
+    ans = FakeAnswerer([
+        ("사은품이 있었다면 함께 보내주셔야 합니다. 추가로 궁금하신 점 있으실까요?", {}, []),
+        ("배송은 2~3일 소요됩니다.", {}, []),
+    ])
+    p = Pipeline(domain, settings, router=router_with(domain, "RETURN_REFUND", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "반품하고 싶어요")
+    r = p.turn(cid, "없습니다. 그런데 배송은 언제 오나요?")
+
+    assert r.end_call is False
+
+
+def test_continuation_after_understood_stays_in_normal_flow(domain, settings):
+    """'알겠는데요 그런데 배송비는요?' 처럼 뒤에 말이 이어지면 판정 없음(길이·'?' 가드)."""
+    ans = FakeAnswerer([
+        ("배송은 2~3일 소요됩니다.", {}, []),
+        ("배송비 관련해 안내해 드리겠습니다.", {}, []),
+    ])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "배송 얼마나 걸려요?")
+    r = p.turn(cid, "알겠는데요 그런데 배송비는요?")
+
+    assert r.end_call is False
+
+
+def test_filler_prefix_then_understood_is_soft(domain, settings):
+    """선행 필러 '아 네 알겠습니다' → SOFT."""
+    ans = FakeAnswerer([("배송은 2~3일 소요됩니다.", {}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "배송 얼마나 걸려요?")
+
+    p.router = _RefusingRouter()
+    p.answerer = _RefusingAnswerer()
+    r = p.turn(cid, "아 네 알겠습니다")
+
+    assert r.end_call is False
+    assert r.answer == domain.soft_closing_message
+
+
+def test_no_space_understood_is_soft(domain, settings):
+    """띄어쓰기 없는 '네알겠습니다' → SOFT."""
+    ans = FakeAnswerer([("배송은 2~3일 소요됩니다.", {}, [])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "배송 얼마나 걸려요?")
+
+    p.router = _RefusingRouter()
+    p.answerer = _RefusingAnswerer()
+    r = p.turn(cid, "네알겠습니다")
+
+    assert r.end_call is False
+    assert r.answer == domain.soft_closing_message
+
+

@@ -53,6 +53,99 @@ ASK_PATTERN = r"\?|주시겠|알려주|말씀해"
 # 끝나지 않으면서 이 패턴에 걸릴 때만 그 문장 하나를 판정에서 제외한다.
 CLOSING_PATTERN = r"(?:더|추가로|또)\s*(?:궁금|문의|필요)|언제든|편하게\s*말씀"
 
+# ── 통화 종료 발화 판정 ──────────────────────────────────────────────
+# "없습니다" 같은 짧은 대답을 후속 문의로 잘못 넘겨 같은 주제를 다시 설명하는 사고를 막는다.
+# LLM 을 부르지 않고 규칙만으로 판정한다(비용 0, 응답 즉시). 판정은 두 단계다 — 무조건
+# 끊는 게 능사가 아니다("알겠습니다"에 바로 전화를 끊으면 그것대로 무례하다):
+#   SOFT: 마무리 인사만 하고 통화는 유지한다("없습니다" 류 — 대개 그 주제가 끝났다는
+#         뜻이지 통화를 끝내겠다는 뜻은 아니다).
+#   HARD: 작별 인사를 하고 통화를 끊는다("수고하세요" 류 — 명시적 작별만 여기 해당).
+# 애매하면 아무 판정도 내리지 않는다(None) — 오판 비용(엉뚱하게 끊기거나, 엉뚱하게
+# 마무리 인사를 하는 것)이 후속 문의를 한 번 더 처리하는 비용보다 훨씬 크다.
+_ENDING_MAX_LEN = 15  # 선행 필러·공백을 정리한 뒤에도 이 길이를 넘으면 새 용건일 수 있어 보지 않는다.
+
+# STT 결과는 구두점이 없고 띄어쓰기가 불규칙하다("네알겠습니다", "아 네 알겠습니다").
+# 매칭 전에 공백으로 구분된 선행 필러 토큰(아/어/음/그/예/네/뭐, 반복 가능)만 제거한다 —
+# "그렇군요"처럼 필러 글자로 시작하지만 뒤에 공백 없이 이어지는 단어를 잘못 깎아내지
+# 않도록, 필러 뒤에 공백·쉼표·마침표가 실제로 있을 때만 지운다.
+_ENDING_FILLER_PREFIX = re.compile(r"^(?:[아어음그예네뭐]+[,.\s]+)+")
+
+# 상담원 답변이 "종결 질문"으로 끝났는지 — 되묻기·확인 질문과 구분해야 한다("사은품
+# 있으셨나요?" 뒤의 "없어요"는 종료가 아니라 되묻기 응답이다). 기존 CLOSING_PATTERN
+# (더/추가로/또/다른 + 궁금/문의/필요/도와) 에 "있으실까요/있으신가요/있으세요/있으십니까",
+# "더 도와드릴", "언제든 말씀", "편하게 말씀", "다른 문의" 류를 더한다.
+_CLOSING_QUESTION_PATTERN = (
+    r"(?:더|추가로|또|다른)\s*(?:궁금|문의|필요|도와)"
+    r"|있으실까요|있으신가요|있으세요|있으십니까"
+    r"|더\s*도와드릴|언제든\s*말씀|편하게\s*말씀|다른\s*문의"
+)
+
+# A군 — 부정·없음(SOFT). 직전 상담원 답변이 위 _CLOSING_QUESTION_PATTERN 에 걸렸을 때만
+# 쓴다. 확인용 되묻기("사은품 있으셨나요?")에 대한 "없어요"는 이 군에 넣지 않는다 — 그건
+# 종료가 아니라 되묻기 응답이라 기존 흐름(라우터·답변기) 그대로 가야 한다.
+_ENDING_SOFT_NEGATIONS = (
+    "없습니다", "없어요", "없네요", "없구요", "없는데요", "없을 것 같아요",
+    "딱히 없어요", "특별히 없어요", "지금은 없어요", "더는 없어요", "그런 건 없어요",
+    "아니요", "아뇨", "아니에요", "아닙니다",
+    "괜찮아요", "괜찮습니다", "괜찮네요", "이제 괜찮아요",
+    "됐어요", "됐습니다", "됐네요", "다 됐어요", "이제 됐어요", "그거면 됐어요",
+    "충분해요", "충분합니다", "그거면 충분해요",
+    "다 확인했어요", "다 들었어요",
+)
+# B군 — 수용·이해(SOFT). 직전 턴 내용과 무관하다. 단독 "감사합니다" 류는 통화 중간에
+# 고마움만 표하고 말을 이어가는 경우가 흔해 여기(SOFT)에 둔다 — C군(작별)은 그 뒤에
+# 명시적 작별어가 붙을 때만이다.
+_ENDING_SOFT_ACCEPTANCES = (
+    "알겠습니다", "알겠어요", "알겠네요", "네 알겠습니다", "아 네 알겠습니다",
+    "그렇군요", "그렇구나", "그렇네요",
+    "이해했습니다", "이해했어요", "잘 알겠습니다",
+    "확인했습니다", "확인했어요",
+    "감사합니다", "고맙습니다", "감사해요", "고마워요",
+)
+# C군 — 명시적 작별(HARD, 통화 종료). 직전 턴 내용과 무관하다. B군보다 먼저 검사해야
+# "감사합니다 수고하세요"처럼 B군 낱말을 포함한 작별 인사가 SOFT 로 잘못 잡히지 않는다.
+_ENDING_HARD_FAREWELLS = (
+    "수고하세요", "수고하십시오", "수고하셨습니다",
+    "고생하셨습니다", "고생 많으셨습니다", "애쓰셨습니다",
+    "안녕히 계세요", "안녕히 계십시오", "들어가세요",
+    "끊을게요", "끊겠습니다", "이만 끊을게요", "그럼 끊을게요",
+    "이만 줄이겠습니다", "그럼 이만",
+    "감사합니다 수고하세요", "고맙습니다 수고하세요", "네 감사합니다 안녕히 계세요",
+)
+
+
+def _ending_core(text: str) -> str:
+    """선행 필러를 지우고 공백을 정규화한, 매칭용 문자열."""
+    core = _ENDING_FILLER_PREFIX.sub("", text.strip())
+    return re.sub(r"\s+", "", core)
+
+
+def _nospace_any(core: str, phrases: tuple[str, ...]) -> bool:
+    return any(re.sub(r"\s+", "", p) in core for p in phrases)
+
+
+def classify_call_ending(text: str, prev_answer: Optional[str]) -> Optional[str]:
+    """고객의 현재 발화가 통화를 마무리하려는 신호인지 결정적 규칙으로 판정한다.
+
+    text: 정규화된 고객 발화(이번 턴). prev_answer: 직전 상담원 답변(없으면 통화 첫
+    발화 — 이때는 무조건 판정하지 않는다). LLM 없이 판정하므로 라우터·답변기는 아예
+    호출하지 않는다. 반환값: "SOFT" | "HARD" | None(판정 없음 — 기존 흐름 그대로).
+    """
+    if not prev_answer:
+        return None
+    if "?" in text or re.search(ASK_PATTERN, text):
+        return None
+    core = _ending_core(text)
+    if not core or len(core) > _ENDING_MAX_LEN:
+        return None
+    if _nospace_any(core, _ENDING_HARD_FAREWELLS):
+        return "HARD"
+    if _nospace_any(core, _ENDING_SOFT_ACCEPTANCES):
+        return "SOFT"
+    if re.search(_CLOSING_QUESTION_PATTERN, prev_answer) and _nospace_any(core, _ENDING_SOFT_NEGATIONS):
+        return "SOFT"
+    return None
+
 
 def called_escalate(results: dict) -> bool:
     """답변기가 escalate_to_agent 도구를 실제로 불렀는가. 오류 문자열 값은 호출로 치지 않는다."""
@@ -438,6 +531,22 @@ class Pipeline:
             raise KeyError(call_id)
         t0 = time.perf_counter()
         text = normalize_stt(text)
+        prev_turns = self.turn_logs.get(call_id) or []
+        prev_answer = prev_turns[-1]["a"] if prev_turns else None
+        verdict = classify_call_ending(text, prev_answer)
+        if verdict:
+            # SOFT/HARD 둘 다 라우터·답변기·가드레일을 전부 건너뛴다(LLM 호출 0회).
+            # SOFT 는 마무리 인사만 하고 통화를 유지하고(end_call=False), HARD 만 끊는다.
+            hard = verdict == "HARD"
+            answer = self.domain.closing_message if hard else self.domain.soft_closing_message
+            self.turn_logs.setdefault(call_id, []).append({
+                "q": text, "a": answer, "route": None, "confidence": None, "action": "ANSWER",
+                "tools": [], "guardrail_ok": None, "violations": [], "followup": False,
+                "end_call": hard,
+            })
+            return TurnResult(answer=answer, route=None, confidence=None, action="ANSWER", tools=[],
+                              guardrail=None, elapsed_ms=int((time.perf_counter() - t0) * 1000),
+                              end_call=hard, attempts=0)
         cfg = {"configurable": {"thread_id": call_id}}
         customer = self.customers.get(call_id)
         caller = None
