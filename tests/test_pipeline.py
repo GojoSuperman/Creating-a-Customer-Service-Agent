@@ -436,6 +436,44 @@ def test_turn_result_carries_alt_route(domain, settings):
     assert "route_alt" in r.to_dict()
 
 
+def test_turn_result_evidence_matches_route_sections(domain, settings):
+    """라우트별로 서로 다른 근거 장이 TurnResult 에 실리는지 (server/context.py 의 always_sections/
+    routes[route].sections 과 일치해야 한다)."""
+    ans = SHIPPING = FakeAnswerer([("기준은 100,000원이라 41,000원이 부족합니다.",
+                                    {"get_shipping_policy": {"free_shipping_threshold": 100000, "shortfall": 41000}},
+                                    [{"name": "get_shipping_policy", "args": {"product_id": "P4001"}}])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=SHIPPING)
+    cid, _, _ = p.start_call()
+    r_shipping = p.turn(cid, "P4001 무료배송 되나요?")
+    assert r_shipping.action == "ANSWER"
+    assert r_shipping.evidence == {
+        "always": ["이 매뉴얼을 쓰는 방법", "0. 상담 기본 원칙", "1. 문의 유형 분류",
+                   "7. 응대 범위와 이관", "8. 응대 태도와 문장"],
+        "route": ["4. 배송 문의"],
+    }
+
+    RETURN = FakeAnswerer([("반품 접수 도와드리겠습니다.", {"get_order_status": {"status": "배송완료"}}, [])])
+    p2 = Pipeline(domain, settings, router=router_with(domain, "RETURN_REFUND", 0.9), answerer=RETURN)
+    cid2, _, _ = p2.start_call()
+    r_return = p2.turn(cid2, "반품하고 싶어요")
+    assert r_return.action == "ANSWER"
+    assert r_return.evidence["always"] == r_shipping.evidence["always"]
+    assert r_return.evidence["route"] == ["5. 교환·반품·환불 — 접수", "6. 교환·반품·환불 — 비용과 처리"]
+    assert r_return.evidence["route"] != r_shipping.evidence["route"]
+
+
+def test_turn_result_evidence_none_for_call_ending_turn(domain, settings):
+    ans = FakeAnswerer([("기준은 100,000원이라 41,000원이 부족합니다.",
+                         {"get_shipping_policy": {"free_shipping_threshold": 100000, "shortfall": 41000}},
+                         [{"name": "get_shipping_policy", "args": {"product_id": "P4001"}}])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "P4001 무료배송 되나요?")
+    r = p.turn(cid, "수고하세요")
+    assert r.end_call and r.route is None
+    assert r.evidence is None
+
+
 def test_pipeline_passes_conf_margin_to_router(domain, modumall_dir, tmp_path, monkeypatch):
     import server.router as router_mod
     seen = {}

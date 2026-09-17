@@ -24,6 +24,20 @@
       <span class="{{ 'ok' if t.guardrail_ok else 'bad' }}">가드레일 {{ "통과" if t.guardrail_ok else "위반/기록없음" }}</span>
       {% endif %}
     </div>
+    {% if t.route %}
+    <div class="meta">
+      {% set ev = t.get('evidence') %}
+      {% if ev and (ev.route or ev.always) %}
+      <span>근거:
+        {% if ev.route %}전용 {{ ev.route | join(", ") }}{% endif %}
+        {% if ev.route and ev.always %} · {% endif %}
+        {% if ev.always %}공통 {{ ev.always | join(", ") }}{% endif %}
+      </span>
+      {% else %}
+      <span class="muted">근거 없음</span>
+      {% endif %}
+    </div>
+    {% endif %}
   </li>
   {% else %}
   <li class="empty">턴 기록 없음</li>

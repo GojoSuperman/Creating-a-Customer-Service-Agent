@@ -20,6 +20,7 @@ from langgraph.graph import END, START, StateGraph
 from server import guardrail
 from server.callcontext import current_caller
 from server.config import Settings
+from server.context import section_titles
 from server.domain import Domain
 from server.lrucache import LRUCache
 from server.repo import Repo
@@ -268,6 +269,7 @@ class AgentState(TypedDict, total=False):
     clarify_count: int
     customer: Optional[dict]
     call_id: str
+    evidence: Optional[dict]  # {"always": [...], "route": [...]} — 답변이 실제로 근거한 매뉴얼 장 제목
 
 
 @dataclass
@@ -284,6 +286,7 @@ class TurnResult:
     route_alt: Optional[str] = None
     alt_confidence: Optional[float] = None
     is_followup: bool = False
+    evidence: Optional[dict] = None  # {"always": [...], "route": [...]} — None 이면 근거 문서를 쓰지 않은 턴
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -380,7 +383,11 @@ class Pipeline:
                 "is_followup": is_followup,
                 "routes": [{"route": route, "confidence": r["confidence"],
                             "is_followup": is_followup, "gated": gated}],
-                "attempts": 0, "tools": [], "results": {}, "guardrail": None}
+                "attempts": 0, "tools": [], "results": {}, "guardrail": None,
+                # 매 턴 시작마다 초기화한다 — 체크포인터가 통화(call_id) 동안 state 를 이어가므로,
+                # 초기화하지 않으면 이전 턴에 답변이 근거로 쓴 장이 이번 턴(예: ASK/ESCALATE 로 끝나
+                # 실제로는 매뉴얼을 쓰지 않은 턴)에도 그대로 남아 보일 수 있다.
+                "evidence": None}
         count = state.get("clarify_count", 0)
         if r["action"] == "ESCALATE" and count < self.settings.clarify_max:
             # 확신도 미달을 곧바로 이관하지 않고 한 번 되묻는다 (cs-chatbot-design 의 2단계 fallback)
@@ -412,7 +419,13 @@ class Pipeline:
             return {"action": "ASK", "tools": calls, "results": {}, "answer": text, "attempts": attempts,
                     "history": [state["question"]], "guardrail": None}
         # action_inferred == "ANSWER" → internal "HANDLE" action
-        return {"action": "HANDLE", "tools": calls, "results": results, "answer": text, "attempts": attempts}
+        # 답변기가 이 턴에 실제로 쓴 컨텍스트는 build_context(domain, state["route"]) 그대로다
+        # (server/answer.py 의 build_answer_prompt 가 같은 route 로 호출한다) — 여기서
+        # section_titles 로 그 값을 사람이 읽을 장 제목으로만 바꿔서 꺼내 쓴다(섹션을 다시
+        # 자르거나 라우트에서 새로 추론하지 않는다).
+        evidence = section_titles(self.domain, state["route"])
+        return {"action": "HANDLE", "tools": calls, "results": results, "answer": text, "attempts": attempts,
+                "evidence": evidence}
 
     def _node_guard(self, state: AgentState) -> AgentState:
         customer = state.get("customer")
@@ -446,10 +459,12 @@ class Pipeline:
         return result
 
     def _node_escalate(self, state: AgentState) -> AgentState:
+        # 이관·범위 밖 문구는 매뉴얼 장을 근거로 하지 않는다. 재시도 소진으로 answer 노드를
+        # 거친 뒤 여기로 넘어온 경우 이전 시도의 evidence 가 state 에 남아 있을 수 있어 지운다.
         if state["action"] == "OUT_OF_SCOPE":
-            return {"answer": self.domain.out_of_scope_message, "history": [state["question"]]}
+            return {"answer": self.domain.out_of_scope_message, "history": [state["question"]], "evidence": None}
         return {"answer": self.domain.escalate_message, "action": "ESCALATE",
-                "history": [state["question"]]}
+                "history": [state["question"]], "evidence": None}
 
     # ── 분기 ──────────────────────────────────────────────
     def _after_route(self, state: AgentState) -> str:
@@ -603,11 +618,11 @@ class Pipeline:
             self.turn_logs.setdefault(call_id, []).append({
                 "q": text, "a": answer, "route": None, "confidence": None, "action": "ANSWER",
                 "tools": [], "guardrail_ok": None, "violations": [], "followup": False,
-                "end_call": hard,
+                "end_call": hard, "evidence": None,  # 통화 종료 판정은 매뉴얼을 조회하지 않는다
             })
             return TurnResult(answer=answer, route=None, confidence=None, action="ANSWER", tools=[],
                               guardrail=None, elapsed_ms=int((time.perf_counter() - t0) * 1000),
-                              end_call=hard, attempts=0)
+                              end_call=hard, attempts=0, evidence=None)
         cfg = {"configurable": {"thread_id": call_id}}
         customer = self.customers.get(call_id)
         caller = None
@@ -638,10 +653,11 @@ class Pipeline:
             # guardrail_ok만 읽으므로 영향 없다.
             "violations": g.get("violations", []) if g else [],
             "followup": out.get("is_followup", False),
+            "evidence": out.get("evidence"),
         })
         return TurnResult(answer=out["answer"], route=out.get("route"), confidence=out.get("confidence"),
                           action=action, tools=out.get("tools") or [], guardrail=out.get("guardrail"),
                           elapsed_ms=int((time.perf_counter() - t0) * 1000), end_call=end,
                           attempts=out.get("attempts", 0),
                           route_alt=out.get("route_alt"), alt_confidence=out.get("alt_confidence"),
-                          is_followup=out.get("is_followup", False))
+                          is_followup=out.get("is_followup", False), evidence=out.get("evidence"))
