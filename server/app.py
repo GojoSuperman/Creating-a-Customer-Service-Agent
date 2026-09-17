@@ -14,7 +14,7 @@ from server.context import build_context
 from server.domain import Domain
 from server.llmkey import current_request_key, redact
 from server.pronounce import to_speech
-from server.turnscore import make_scorer, score_turn
+from server.turnscore import judge_turn, make_scorer
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +159,8 @@ def create_app(pipeline, domain: Domain, tts=None, check_model: str = "gpt-4.1-m
             if route and route in domain.routes:
                 manual_rules = build_context(domain, route)
             scorer = _make_scorer(judge_model, api_key)
-            verdict = score_turn(scorer, turn_log, manual_rules)
+            conf_threshold = getattr(getattr(pipeline, "settings", None), "conf_threshold", None)
+            verdict = judge_turn(scorer, turn_log, manual_rules, conf_threshold=conf_threshold)
         except Exception as exc:
             logger.warning("턴 채점 실패", exc_info=True)
             return {"ok": False, "error": redact(f"{type(exc).__name__}: {exc}")}

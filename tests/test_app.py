@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from server.app import create_app
 from server.domain import load_domain
 from server.pipeline import TurnResult
-from server.turnscore import TurnScore
+from server.turnscore import TurnVerdict
 
 
 class FakePipeline:
@@ -365,9 +365,16 @@ def test_start_call_returns_admin_profile_separately(modumall_dir):
     assert r["customer"] is None and r["profile"] is None
 
 
+class _FakeLLMVerdict:
+    """judge_turn 이 쓰는 최소 인터페이스만 흉내 낸다 (should_have_asked/contradicts_tools/note)."""
+    should_have_asked = False
+    contradicts_tools = False
+    note = "근거는 충분하나 응대가 짧다"
+
+
 def _fake_scorer_factory(model, api_key):
     def fake(msgs):
-        return TurnScore(manual=5, evidence=4, tone=5, service=3, reason="근거는 충분하나 응대가 짧다")
+        return _FakeLLMVerdict()
     return fake
 
 
@@ -386,8 +393,9 @@ def test_score_endpoint_scores_last_turn(client_with_fake_scorer):
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
-    assert 4 <= body["total"] <= 20 and body["reason"]
-    assert body["total"] == 17
+    assert "safety_flags" in body and "ability_flags" in body
+    assert body["should_have_asked"] is False and body["contradicts_tools"] is False
+    assert body["note"]
 
 
 def test_score_endpoint_404_for_unknown_call(client_with_fake_scorer):
@@ -437,4 +445,4 @@ def test_score_endpoint_never_calls_tts_or_blocks_turn(client_with_fake_scorer):
     c = client_with_fake_scorer
     s = c.post("/api/call/start").json()
     t = c.post("/api/call/turn", json={"call_id": s["call_id"], "text": "배송비"}, headers=HEADERS_WITH_KEY).json()
-    assert "manual" not in t and "total" not in t   # 채점 필드가 turn 응답에 섞여 있지 않다
+    assert "manual" not in t and "total" not in t and "safety_flags" not in t   # 판정 필드가 turn 응답에 섞여 있지 않다

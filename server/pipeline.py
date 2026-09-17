@@ -462,6 +462,11 @@ class Pipeline:
             "confidence": out.get("confidence"), "action": action,
             "tools": [t["name"] for t in (out.get("tools") or [])],
             "guardrail_ok": g.get("ok") if g else None,
+            # 실시간 턴 판정(server/turnscore.py machine_flags)이 안전 축을 계산하려면 위반
+            # 내역이 필요하다. 기존 guardrail_ok(불리언)만으로는 "무엇이" 위반인지 알 수 없어
+            # 최소 추가한다. 화면 소비자(server/templates/call_detail.html)는 guardrail_ok만
+            # 읽으므로 영향 없다.
+            "violations": g.get("violations", []) if g else [],
             "followup": out.get("is_followup", False),
         })
         return TurnResult(answer=out["answer"], route=out.get("route"), confidence=out.get("confidence"),
