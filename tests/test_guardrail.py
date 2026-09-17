@@ -227,3 +227,41 @@ def test_no_stale_state_flag_without_active_process(domain):
                                          "events": [{"at": "2026-09-14", "status": "배송 완료"}]}}
     res = check("9월 14일에 배송 완료되었습니다.", tool_results, domain)
     assert all(v["type"] != VIOLATION_STALE_STATE for v in res.violations)
+
+
+_ACTIVE_RETURN_RESULTS = {"get_order_status": {"order_id": "O-1072", "status": "반품진행",
+                                               "active_process": {"kind": "반품", "return_id": "R-2013",
+                                                                  "stage": "수거완료"},
+                                               "events": [{"at": "2026-09-14", "status": "배송 완료"}]}}
+
+
+def test_stale_state_check_applies_in_return_route(domain):
+    """RETURN_REFUND 라우트에서는 배송 완료 단정이 없어도(다른 주제 답변이어도) 강제한다."""
+    from server.guardrail import VIOLATION_STALE_STATE, check
+
+    # _PROCESS_WORDS 를 하나도 담지 않은 답변 — 배송 완료 단정도 없다.
+    r = check("현재 상태를 다시 한번 확인해 드리겠습니다.", _ACTIVE_RETURN_RESULTS, domain, route="RETURN_REFUND")
+    assert not r.ok and any(v["type"] == VIOLATION_STALE_STATE for v in r.violations)
+
+
+def test_stale_state_check_skipped_outside_state_routes(domain):
+    """ORDER_PLACE(주문 변경 등)처럼 배송·반품 계열이 아닌 라우트에서는 강제하지 않는다.
+
+    프롬프트 규칙 6이 "주문·배송·반품 진행 상태를 묻거나 안내할 때"로 범위를 좁혔으므로,
+    range 밖에서까지 active_process 언급을 강제하면 모델 지시와 가드레일이 어긋난다.
+    """
+    from server.guardrail import VIOLATION_STALE_STATE, check
+
+    r = check("현재 상태를 다시 한번 확인해 드리겠습니다.", _ACTIVE_RETURN_RESULTS, domain, route="ORDER_PLACE")
+    assert all(v["type"] != VIOLATION_STALE_STATE for v in r.violations)
+
+
+def test_stale_state_check_applies_conservatively_without_route(domain):
+    """route 인자를 안 넘기는 레거시 호출은 검사를 건너뛰지 않되, 배송 완료 같은 단정이 있을 때만 켠다."""
+    from server.guardrail import VIOLATION_STALE_STATE, check
+
+    with_claim = check("9월 14일에 배송 완료되었습니다.", _ACTIVE_RETURN_RESULTS, domain)
+    assert any(v["type"] == VIOLATION_STALE_STATE for v in with_claim.violations)
+
+    without_claim = check("환불 금액은 결제 수단으로 그대로 돌아갑니다.", _ACTIVE_RETURN_RESULTS, domain)
+    assert all(v["type"] != VIOLATION_STALE_STATE for v in without_claim.violations)

@@ -231,12 +231,27 @@ class Pipeline:
         results = dict(state["results"])
         if customer:
             results["_customer"] = customer
-        g = guardrail.check(state["answer"], results, self.domain)
+        g = guardrail.check(state["answer"], results, self.domain, route=state["route"])
         if not g.ok:
             for v in g.violations:
                 guardrail.log_violation(self.settings.logs_dir, {
                     "call_id": state.get("call_id"), "route": state["route"], "type": v["type"],
                     "detail": v["detail"], "answer": state["answer"]})
+        # 재시도가 소진됐는데 남은 위반이 전부 "진행 중 상태 누락"뿐이면 이관하지 않는다. 이 위반은
+        # "틀린 값을 말했다"가 아니라 "말을 덜 했다"이므로, 통화를 끊고 이관 문구로 바꾸는 대가가
+        # 과하다 — 경고만 남기고 이미 생성된 답변을 그대로 내보낸다. (LangGraph 의 분기 함수는
+        # state 를 고쳐 쓸 수 없어, action/history 를 여기서 확정해야 _after_guard 가 그대로
+        # END 로 보낸다.)
+        retries_exhausted = state.get("attempts", 0) > self.settings.guardrail_retry
+        only_stale = bool(g.violations) and all(v["type"] == guardrail.VIOLATION_STALE_STATE
+                                                for v in g.violations)
+        if not g.ok and retries_exhausted and only_stale:
+            guardrail.log_violation(self.settings.logs_dir, {
+                "call_id": state.get("call_id"), "route": state["route"],
+                "type": "STALE_STATE_PASSTHROUGH",
+                "detail": "재시도 소진, 진행 중 상태 누락만 남아 이관 없이 답변을 그대로 내보냄",
+                "answer": state["answer"]})
+            return {"guardrail": g.to_dict(), "action": "ANSWER", "history": [state["question"]]}
         result = {"guardrail": g.to_dict(), "action": "ANSWER" if g.ok else "RETRY"}
         if g.ok:
             result["history"] = [state["question"]]

@@ -99,6 +99,33 @@ def test_guardrail_retry_then_escalate(domain, settings):
     assert (settings.logs_dir / "guardrail.jsonl").exists()
 
 
+def test_stale_state_violation_does_not_escalate_or_end_call(domain, settings):
+    """진행 중 상태 누락만 남으면 재시도 소진 뒤에도 이관하지 않고 원래 답을 그대로 내보낸다."""
+    order_status = {"order_id": "O-1072", "status": "반품진행",
+                    "active_process": {"kind": "반품", "return_id": "R-2013", "stage": "수거완료"},
+                    "events": [{"at": "2026-09-14", "status": "배송 완료"}]}
+    bad = ("9월 14일에 수도권으로 배송 완료되었습니다.", {"get_order_status": order_status}, [])
+    ans = FakeAnswerer([bad, bad])
+    p = Pipeline(domain, settings, router=router_with(domain, "RETURN_REFUND", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    r = p.turn(cid, "O-1072 배송 언제 오나요?")
+    assert len(ans.questions) == 2   # 재시도는 1번(guardrail_retry=1) 일어났다
+    assert r.action == "ANSWER" and not r.end_call
+    assert r.answer == bad[0]   # 이관 문구로 바뀌지 않고 원래 답을 그대로 내보냈다
+    assert r.guardrail["ok"] is False
+    assert (settings.logs_dir / "guardrail.jsonl").exists()
+
+
+def test_unsourced_number_violation_still_escalates_after_retry(domain, settings):
+    """진행 중 상태 누락과 달리, 숫자 출처 불명 같은 기존 위반 유형은 재시도 소진 뒤 그대로 이관된다."""
+    bad = ("무료배송 기준은 40,000원 이상입니다.", {"get_shipping_policy": {"free_shipping_threshold": 100000}}, [])
+    ans = FakeAnswerer([bad, bad])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    r = p.turn(cid, "P4001 무료배송?")
+    assert r.action == "ESCALATE" and r.end_call and r.answer == domain.escalate_message
+
+
 def test_guardrail_retry_succeeds(domain, settings):
     bad = ("무료배송 기준은 40,000원 이상입니다.", {"get_shipping_policy": {"free_shipping_threshold": 100000}}, [])
     good = ("무료배송 기준은 100,000원 이상입니다.", {"get_shipping_policy": {"free_shipping_threshold": 100000}}, [])

@@ -4,6 +4,9 @@
 허용 집합 = 조회 결과 + 도메인 고정값 + 한 단계 산술 유도값.
 출처를 못 찾는 숫자가 있으면 위반. 여기에 미확정값(null / is_confirmed=false)을
 확답하는 패턴 검사를 더한다. 숫자·패턴이 아닌 오류는 못 잡는다 — 그건 정답셋 채점기 몫이다.
+진행 중 상태 누락(VIOLATION_STALE_STATE) 검사도 마찬가지로 판정기가 아니라 안전망이다 — 답변에
+_PROCESS_WORDS 단어가 하나라도 있으면 문맥과 무관하게 통과로 본다("반품 규정은 7일입니다" 처럼
+실제로는 무관한 문장이어도 "반품"이 있으면 통과된다).
 """
 import json
 import re
@@ -20,6 +23,15 @@ VIOLATION_STALE_STATE = "진행 중 상태 누락"
 
 # 진행 중인 반품·교환을 언급했다고 볼 수 있는 말들. 하나라도 있으면 통과로 본다.
 _PROCESS_WORDS = ("반품", "교환", "수거", "검품", "환불", "입고")
+
+# 프롬프트 규칙 6(server/prompts.py)이 "주문·배송·반품 진행 상태를 묻거나 안내할 때"로 범위를
+# 좁혔으므로, 가드레일도 같은 범위에서만 active_process 언급을 강제한다. 이 범위 밖(주문 변경·
+# 금액 등)에서까지 강제하면 모델에게는 "말하지 말라" 해놓고 가드레일은 "말하라"고 어긋나게 된다.
+# domain.routes 의 실제 키 값(server/domain.py ROUTES)을 그대로 쓴다.
+_STATE_ROUTES = frozenset({"SHIPPING", "RETURN_REFUND"})
+# route 를 못 받는 호출(레거시 테스트 등)에서는 검사를 통째로 건너뛰지 않고, 답변이 배송 완료·도착·
+# 출고처럼 "다 끝났다"는 단정을 실제로 담고 있을 때만 보수적으로 검사한다.
+_DELIVERY_CLAIM_RE = re.compile(r"배송\s*완료|도착|출고")
 
 # 미확정 필드별로, 답변에서 "확답"으로 간주할 패턴
 ASSERTION_PATTERNS = {
@@ -123,7 +135,8 @@ def _unconfirmed_fields(tool_results: dict) -> set[str]:
     return out
 
 
-def check(answer: str, tool_results: dict, domain: Domain, min_check: int = 1000) -> GuardResult:
+def check(answer: str, tool_results: dict, domain: Domain, min_check: int = 1000,
+         route: str | None = None) -> GuardResult:
     allowed, tool_nums = allowed_numbers(tool_results, domain)
     normalized_answer = normalize_korean_myriad(answer)
     found = numbers_in(normalized_answer)
@@ -153,14 +166,19 @@ def check(answer: str, tool_results: dict, domain: Domain, min_check: int = 1000
 
     # 진행 중인 반품·교환(active_process)이 있는데 답변이 그 사실을 한 마디도 하지 않으면 위반이다.
     # 도구 이름 → 결과 dict 형태(같은 도구를 여러 번 부르면 "이름#2" 식으로 추가 키가 붙는다)를
-    # 그대로 순회한다. 가장 먼저 만난 active_process 하나만 검사한다.
+    # 그대로 순회한다. 가장 먼저 만난 active_process 하나만 검사한다(한 턴에 두 주문을 조회하면
+    # 뒤 주문의 active_process 는 검사하지 않는다 — 단어 존재 여부만 보는 안전망이지 완전한
+    # 판정기가 아니다. "반품 규정은 7일입니다" 처럼 문맥과 무관하게 단어만 있어도 통과로 본다).
     for result in (tool_results or {}).values():
         if not isinstance(result, dict):
             continue
         active = result.get("active_process")
         if not active:
             continue
-        if not any(word in answer for word in _PROCESS_WORDS):
+        # 적용 범위: 프롬프트 규칙 6과 맞춰 배송·반품 계열 라우트에서만 강제한다. route 를 못 받으면
+        # (레거시 호출) 답변이 "배송 다 끝났다"는 단정을 담고 있을 때만 보수적으로 검사한다.
+        in_scope = (route in _STATE_ROUTES) if route is not None else bool(_DELIVERY_CLAIM_RE.search(answer))
+        if in_scope and not any(word in answer for word in _PROCESS_WORDS):
             violations.append({"type": VIOLATION_STALE_STATE,
                                "detail": f"{active.get('kind')} {active.get('stage')} 진행 중인데 답변이 그 사실을 말하지 않았다"})
         break

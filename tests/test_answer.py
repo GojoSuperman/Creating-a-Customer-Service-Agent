@@ -82,6 +82,22 @@ def test_feedback_is_appended_to_human_message(domain):
     assert "조회 결과와 매뉴얼에 있는 값만 써서 다시 답하십시오." in content
 
 
+def test_stale_state_feedback_gets_matching_instruction(domain):
+    """숫자 위반용 안내가 아니라 "진행 중 상태를 먼저 알리라"는, 위반 종류에 맞는 안내가 붙어야 한다."""
+    from server.guardrail import VIOLATION_STALE_STATE
+    seen = {}
+    def capture(messages):
+        seen["human"] = [m for m in messages if getattr(m, "type", "") == "human" or (isinstance(m, tuple) and m[0] == "human")]
+        return AIMessage(content="네.")
+    a = Answerer(domain, llm=RunnableLambda(capture))
+    a.answer("배송 언제 오나요?", "RETURN_REFUND",
+            feedback=f"{VIOLATION_STALE_STATE}: 반품 수거완료 진행 중인데 답변이 그 사실을 말하지 않았다")
+    human = seen["human"][0]
+    content = human.content if hasattr(human, "content") else human[1]
+    assert "진행 중인 반품·교환 사실을 한 문장으로 먼저 알리고" in content
+    assert "조회 결과와 매뉴얼에 있는 값만 써서 다시 답하십시오." not in content
+
+
 def test_history_is_prepended(domain):
     seen = {}
     def capture(messages):

@@ -20,6 +20,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from server.context import build_context
 from server.domain import Domain
+from server.guardrail import VIOLATION_STALE_STATE
 from server.prompts import build_answer_rules
 from server.tools import make_tools
 
@@ -122,7 +123,15 @@ class Answerer:
         else:
             full_q = question
         if feedback:
-            full_q += f"\n\n[직전 답변 반려 사유] {feedback}\n조회 결과와 매뉴얼에 있는 값만 써서 다시 답하십시오."
+            # "진행 중 상태 누락"은 잘못된 값을 말한 게 아니라 사실을 덜 말한 것이므로, 숫자·조회
+            # 위반용 안내("조회 결과와 매뉴얼에 있는 값만 써서...")를 그대로 붙이면 엉뚱한 지시가
+            # 된다. 반려 사유가 전부 이 유형뿐이면 맞는 안내를 따로 준다.
+            segments = feedback.split("; ")
+            if segments and all(seg.startswith(f"{VIOLATION_STALE_STATE}:") for seg in segments):
+                instruction = "진행 중인 반품·교환 사실을 한 문장으로 먼저 알리고 나서 물은 내용에 답하십시오."
+            else:
+                instruction = "조회 결과와 매뉴얼에 있는 값만 써서 다시 답하십시오."
+            full_q += f"\n\n[직전 답변 반려 사유] {feedback}\n{instruction}"
         init = {"messages": [("system", build_answer_prompt(self.domain, route, customer=customer)),
                              ("human", full_q)]}
         calls: list[dict] = []
