@@ -43,5 +43,5 @@ def load_settings() -> Settings:
         tts_voice=os.environ.get("TTS_VOICE", "nova"),
         judge_model=os.environ.get("JUDGE_MODEL", "gpt-4.1-mini"),
         conf_margin=float(os.environ.get("CONF_MARGIN", "0.3")),
-        followup_inherit=os.environ.get("FOLLOWUP_INHERIT", "0").lower() in ("1", "true", "yes"),
+        followup_inherit=os.environ.get("FOLLOWUP_INHERIT", "0").strip().lower() in ("1", "true", "yes"),
     )

@@ -12,7 +12,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from eval.calibration import calibration_table
 from server.config import load_settings
 from server.domain import ROUTES, load_domain
-from server.pipeline import compose_router_input
+from server.pipeline import compose_router_input, should_inherit
 from server.router import build_router, make_llm_classifier, make_rule_classifier
 
 LABELS4 = [r for r in ROUTES if r != "OTHER"]
@@ -32,8 +32,7 @@ def route_conversation(graph, turns: list, use_history: bool = True, inherit: bo
         q = compose_router_input(t["text"], history, prev) if use_history else t["text"]
         st = graph.invoke({"question": q})
         gated = st["action"] == "ESCALATE"   # 게이트(확신도·마진)가 이 턴의 판단을 거부했다
-        followup = (bool(st.get("is_followup")) and inherit and prev is not None
-                    and not prev_gated and prev != "OTHER")
+        followup = should_inherit(st.get("is_followup"), inherit, prev, prev_gated)
         route = prev if followup else st["route"]
         out.append({"route": route, "is_followup": bool(st.get("is_followup")), "confidence": st["confidence"]})
         history.append(t["text"])

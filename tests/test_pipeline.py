@@ -2,7 +2,7 @@ import pytest
 from server.config import Settings
 from server.domain import load_domain
 from server.router import RouteDecision, build_router
-from server.pipeline import Pipeline, infer_action
+from server.pipeline import Pipeline, infer_action, should_inherit
 
 
 @pytest.fixture
@@ -551,3 +551,19 @@ def test_escalate_tool_error_string_is_ignored(domain, settings):
     p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
     cid, _, _ = p.start_call()
     assert p.turn(cid, "O-1001 어디쯤이에요?").end_call is False
+
+
+def test_should_inherit_when_enabled_and_prev_ok():
+    assert should_inherit(True, True, "SHIPPING", False) is True
+
+
+def test_should_inherit_false_when_disabled():
+    assert should_inherit(True, False, "SHIPPING", False) is False
+
+
+def test_should_inherit_false_when_prev_gated():
+    assert should_inherit(True, True, "SHIPPING", True) is False
+
+
+def test_should_inherit_false_when_prev_is_other():
+    assert should_inherit(True, True, "OTHER", False) is False

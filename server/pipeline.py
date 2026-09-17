@@ -147,6 +147,11 @@ def compose_router_input(question: str, history: list, prev_route: Optional[str]
     return q
 
 
+def should_inherit(is_followup: bool, enabled: bool, prev_route, prev_gated: bool) -> bool:
+    """후속 발화가 직전 라우트를 이어받을지. 옵션이 켜져 있고, 직전 턴이 있고, 그 턴이 게이트에 걸리지 않았고, OTHER 가 아닐 때만."""
+    return bool(is_followup) and enabled and prev_route is not None and not prev_gated and prev_route != "OTHER"
+
+
 class Pipeline:
     def __init__(self, domain: Domain, settings: Settings, router=None, answerer=None):
         self.domain = domain
@@ -179,8 +184,8 @@ class Pipeline:
         # 라우트 강제 이어받기는 FOLLOWUP_INHERIT 옵션(기본 꺼짐)일 때만 한다 — 멀티턴 측정(2026-09-17)에서
         # 강제 상속이 라우트 전환 발화를 망쳐 순손실이었다. 켠 경우에도 게이트 미달 턴의 라우트는 추측이므로
         # 상속 앵커로 쓰지 않는다([직전 라우트] 는 모델에 계속 알려 주고 이어받기만 막는다). OTHER 도 제외.
-        followup = (is_followup and self.settings.followup_inherit and prev_entry is not None
-                    and not prev_entry["gated"] and prev_entry["route"] != "OTHER")
+        followup = should_inherit(is_followup, self.settings.followup_inherit, prev,
+                                  bool(prev_entry and prev_entry["gated"]))
         if followup:
             route = prev   # 후속 발화는 라우트만 이어받고, 확신도 판정(action)은 라우터 결과를 그대로 쓴다
         base = {"route": route, "confidence": r["confidence"], "action": r["action"],
