@@ -1,13 +1,8 @@
-import sqlite3
-from pathlib import Path
-
 import pytest
 
 from server.domain import load_domain
 from server.repo import Repo
 from server.shoprepo import PAGE_SIZE, ShopRepo
-
-ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture(scope="module")
@@ -63,6 +58,25 @@ def test_quote_cosmetics_never_free(shop):
     assert q["free_shipping_applied"] is False and q["shipping_fee"] == shop.base_fee
 
 
+def test_quote_cosmetics_mixed_with_apparel_still_charges_even_over_threshold(shop):
+    # 화장품(임계값 NULL)이 하나라도 섞이면, 의류(40,000) 임계값을 합계가 넘어도 무조건 유료여야 한다.
+    # (규칙 1) _shipping 의 "return self.base_fee, False" 를 "continue" 로 바꾸는 돌연변이는
+    # thresholds 를 [40000] 만 모아 합계가 넘으면 무료로 판단해버려 이 케이스에서만 걸린다.
+    apparel = shop.con.execute(
+        "select product_id, price from products where category='APPAREL' order by price limit 1").fetchone()
+    cosmetics = shop.con.execute(
+        "select product_id, price from products where category='COSMETICS' order by price limit 1").fetchone()
+    apparel_id, apparel_price = apparel
+    cosmetics_id, _ = cosmetics
+    # 의류만으로 40,000원을 확실히 넘기도록 수량을 넉넉히 잡는다.
+    qty = (40000 // apparel_price) + 1
+    q = shop.quote([{"product_id": apparel_id, "option": None, "qty": qty},
+                    {"product_id": cosmetics_id, "option": None, "qty": 1}])
+    assert q["subtotal"] >= 40000
+    assert q["free_shipping_applied"] is False
+    assert q["shipping_fee"] == shop.base_fee
+
+
 def test_quote_mixed_categories_need_every_threshold(shop):
     # 의류(40,000) + 속옷(30,000) 이 섞이면 합계가 둘 다 넘어야 무료
     apparel = shop.con.execute("select product_id, price from products where category='APPAREL' order by price limit 1").fetchone()
@@ -77,3 +91,38 @@ def test_quote_empty_and_unknown_product(shop):
     empty = shop.quote([])
     assert empty["lines"] == [] and empty["subtotal"] == 0 and empty["shipping_fee"] == 0 and empty["total"] == 0
     assert shop.quote([{"product_id": "P9999", "option": None, "qty": 1}])["lines"] == []
+
+
+def test_products_paging_is_ordered_and_non_overlapping(shop):
+    # order by product_id 가 없으면(돌연변이) 페이지 간 순서가 정렬 순서와 어긋나거나 겹칠 수 있다.
+    page1, total = shop.products(page=1)
+    page2, _ = shop.products(page=2)
+    ids1 = [r["product_id"] for r in page1]
+    ids2 = [r["product_id"] for r in page2]
+
+    assert len(ids1) == PAGE_SIZE and len(ids2) == PAGE_SIZE
+    assert set(ids1).isdisjoint(ids2)
+
+    expected_first_48 = [r[0] for r in shop.con.execute(
+        "select product_id from products order by product_id limit 48").fetchall()]
+    assert ids1 + ids2 == expected_first_48
+
+    # 마지막 페이지: 나머지 개수만큼만 반환한다.
+    last_page_no = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    last_page, _ = shop.products(page=last_page_no)
+    remainder = total - (last_page_no - 1) * PAGE_SIZE
+    assert len(last_page) == remainder
+
+    # 범위를 넘는 페이지는 빈 목록이지만 total 은 그대로다.
+    beyond, total_beyond = shop.products(page=last_page_no + 1)
+    assert beyond == [] and total_beyond == total
+
+
+def test_shipping_free_exactly_at_threshold(shop):
+    # >= 를 > 로 바꾸는 돌연변이를 잡기 위해 _shipping 을 직접 호출해 경계값을 확인한다.
+    threshold = shop.repo.categories()["UNDERWEAR"]["free_shipping_threshold"]
+    fee_at, free_at = shop._shipping(threshold, ["UNDERWEAR"])
+    assert free_at is True and fee_at == 0
+
+    fee_below, free_below = shop._shipping(threshold - 1, ["UNDERWEAR"])
+    assert free_below is False and fee_below == shop.base_fee
