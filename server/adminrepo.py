@@ -82,11 +82,18 @@ class AdminRepo:
             r["routes"] = list(dict.fromkeys([t.get("route") for t in turns if t.get("route")]))
         return rows, total
 
+    @staticmethod
+    def _like_escape(s):
+        # LIKE 패턴에서 %, _ 가 와일드카드로 해석되지 않도록 이스케이프한다.
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
     def customers(self, *, q=None, page=1, size=PAGE_SIZE):
         cond, params = [], []
         if q:
-            cond.append("(name like ? or phone = ? or replace(phone,'-','') like ?)")
-            params += [f"%{q}%", normalize_phone(q), f"%{q.replace('-', '')}%"]
+            escaped = self._like_escape(q)
+            escaped_digits = self._like_escape(q.replace("-", ""))
+            cond.append("(name like ? escape '\\' or phone = ? or replace(phone,'-','') like ? escape '\\')")
+            params += [f"%{escaped}%", normalize_phone(q), f"%{escaped_digits}%"]
         return self._page("select customer_id, name, phone, address_region, joined_at from customers",
                            "select count(*) from customers", self._where(cond), tuple(params),
                            "order by customer_id", page, size)

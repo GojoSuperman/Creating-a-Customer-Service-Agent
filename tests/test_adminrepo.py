@@ -1,9 +1,13 @@
+import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 from server.adminrepo import PAGE_SIZE, AdminRepo
 from server.domain import load_domain
+
+SCHEMA_SQL = Path(__file__).resolve().parent.parent / "server" / "db" / "schema.sql"
 
 
 @pytest.fixture(scope="module")
@@ -73,9 +77,38 @@ def test_calls_list_parses_turns(admin):
     rows, total = admin.calls()
     assert total == expected_count(admin, "select count(*) from call_logs")
     assert [r["started_at"] for r in rows] == sorted([r["started_at"] for r in rows], reverse=True)
+
+    # call_id='d64a0e12c1fd' 는 turns 가 비어있지 않은 실제 DB 행이다 (DB 에서 직접 확인).
+    # turns == [{"q": "소재요", "route": "PRODUCT_INFO", ...}] 1개.
+    target = next(r for r in rows if r["call_id"] == "d64a0e12c1fd")
+    assert target["turn_count"] == 1
+    assert target["routes"] == ["PRODUCT_INFO"]
+
+
+def test_calls_route_dedup_preserves_order():
+    # 같은 route 가 여러 턴에 반복될 때 중복 제거되는지는 실제 DB 에 그런 데이터가 없으므로
+    # 인메모리 SQLite 에 직접 시드해 검증한다. AdminRepo/adminrepo.py 는 읽기만 하고
+    # 쓰기(insert)는 이 테스트 픽스처 전용이다.
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))
+    turns = [
+        {"q": "1", "route": "PRODUCT_INFO"},
+        {"q": "2", "route": "SHIPPING"},
+        {"q": "3", "route": "PRODUCT_INFO"},
+    ]
+    con.execute(
+        "insert into call_logs (call_id, customer_id, started_at, ended_at, turns) values (?,?,?,?,?)",
+        ("dup-call", None, "2026-09-01T00:00:00", "2026-09-01T00:05:00", json.dumps(turns, ensure_ascii=False)),
+    )
+    con.commit()
+
+    admin = AdminRepo(con)
+    rows, total = admin.calls()
+    assert total == 1
     r = rows[0]
-    assert r["turn_count"] == len(r["turns"])
-    assert isinstance(r["routes"], list)
+    assert r["turn_count"] == 3
+    assert r["routes"] == ["PRODUCT_INFO", "SHIPPING"]  # 등장 순서 유지, 중복 제거
 
 
 def test_customers_search_by_name_and_phone(admin):
@@ -89,3 +122,9 @@ def test_customers_search_by_name_and_phone(admin):
     assert any(c["customer_id"] == target["customer_id"] for c in by_phone)
 
     assert admin.customers(q="존재하지않는고객")[1] == 0
+
+
+def test_customers_search_escapes_like_wildcards(admin):
+    # LIKE 특수문자 %, _ 가 와일드카드로 해석되면 안 된다 (실측: 이스케이프 없으면 q='%' 가 전체건수 반환)
+    assert admin.customers(q="%")[1] == 0
+    assert admin.customers(q="_")[1] == 0
