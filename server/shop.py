@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from server import shopcookie
 from server.repo import normalize_phone
-from server.shoprepo import PAGE_SIZE, ShopRepo
+from server.shoprepo import PAGE_SIZE, OrderError, ShopRepo
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 SESSION_COOKIE = "shop_session"
@@ -93,6 +93,10 @@ def shop_router(repo, domain) -> APIRouter:
     def cart_of(request: Request):
         return shopcookie.load_cart(request.cookies.get(CART_COOKIE))
 
+    def set_cart(response, cart):
+        response.set_cookie(CART_COOKIE, shopcookie.dump_cart(cart), httponly=True, samesite="lax",
+                            path=COOKIE_PATH)
+
     def render(request, name, customer, cart_count=None, **ctx):
         if cart_count is None:
             cart_count = len(cart_of(request))
@@ -167,12 +171,110 @@ def shop_router(repo, domain) -> APIRouter:
         response.delete_cookie(SESSION_COOKIE, path=COOKIE_PATH)
         return response
 
-    # ── 내 주문 (로그인 여부만 확인 — 목록/상세는 Task 5) ──
+    # ── 장바구니 ────────────────────────────────────────
+    @router.get("/cart", response_class=HTMLResponse)
+    def cart_view(request: Request):
+        cart = cart_of(request)
+        shop = get_shop()
+        return render(request, "cart.html", current_customer(request), quote=shop.quote(cart), blocked=[])
+
+    @router.post("/cart/add")
+    async def cart_add(request: Request):
+        try:
+            form = await _urlencoded_form(request)
+        except FormTooLarge:
+            return HTMLResponse("요청 본문이 너무 큽니다.", status_code=413)
+        product_id = (form.get("product_id") or "")[:shopcookie.MAX_PRODUCT_ID_LEN]
+        option = (form.get("option") or "")[:shopcookie.MAX_OPTION_LEN]
+        try:
+            qty = int(form.get("qty") or 1)
+        except ValueError:
+            qty = 1
+        qty = max(1, min(shopcookie.MAX_QTY, qty))
+        cart = cart_of(request)
+        for line in cart:
+            if line["product_id"] == product_id and (line["option"] or "") == option:
+                line["qty"] = min(shopcookie.MAX_QTY, line["qty"] + qty)
+                break
+        else:
+            cart.append({"product_id": product_id, "option": option or None, "qty": qty})
+        response = redirect("/shop/cart")
+        set_cart(response, cart[:shopcookie.MAX_CART_LINES])
+        return response
+
+    @router.post("/cart/update")
+    async def cart_update(request: Request):
+        try:
+            form = await _urlencoded_form(request)
+        except FormTooLarge:
+            return HTMLResponse("요청 본문이 너무 큽니다.", status_code=413)
+        product_id = form.get("product_id") or ""
+        # option 필드가 아예 안 왔으면(기존 화면처럼 상품당 한 줄뿐인 경우) product_id 만으로 찾는다.
+        # option 필드가 왔으면(같은 상품이 옵션별로 여러 줄일 때) 그 옵션의 줄만 골라낸다.
+        option_given = "option" in form
+        option = (form.get("option") or "") or None
+        try:
+            qty = int(form.get("qty") or 0)
+        except ValueError:
+            qty = 0
+        cart = []
+        for line in cart_of(request):
+            matches = line["product_id"] == product_id and (not option_given or (line["option"] or None) == option)
+            if matches:
+                if qty > 0:
+                    line["qty"] = max(1, min(shopcookie.MAX_QTY, qty))
+                    cart.append(line)
+                # qty <= 0 이면 이 줄만 삭제하고 건너뛴다
+            else:
+                cart.append(line)
+        response = redirect("/shop/cart")
+        set_cart(response, cart)
+        return response
+
+    # ── 주문 ────────────────────────────────────────────
+    @router.get("/checkout", response_class=HTMLResponse)
+    def checkout_form(request: Request):
+        customer = current_customer(request)
+        if not customer:
+            return redirect("/shop/login")
+        cart = cart_of(request)
+        if not cart:
+            return redirect("/shop/cart")
+        shop = get_shop()
+        return render(request, "checkout.html", customer, quote=shop.quote(cart))
+
+    @router.post("/checkout")
+    def checkout(request: Request):
+        customer = current_customer(request)
+        if not customer:
+            return redirect("/shop/login")
+        cart = cart_of(request)
+        shop = get_shop()
+        try:
+            order_id = shop.create_order(customer["customer_id"], cart)
+        except OrderError as e:
+            reasons = [e.message, *e.blocked]
+            deduped = list(dict.fromkeys(reasons))  # 같은 상품이 여러 줄이면 같은 사유가 반복되므로 순서를 지키며 중복 제거
+            return render(request, "cart.html", customer, quote=shop.quote(cart), blocked=deduped)
+        response = redirect(f"/shop/orders/{order_id}")
+        set_cart(response, [])                    # 주문이 끝나면 장바구니를 비운다
+        return response
+
     @router.get("/orders", response_class=HTMLResponse)
     def my_orders(request: Request):
         customer = current_customer(request)
         if not customer:
             return redirect("/shop/login")
-        return render(request, "orders.html", customer)
+        return render(request, "orders.html", customer, rows=get_shop().orders_of(customer["customer_id"]))
+
+    @router.get("/orders/{order_id}", response_class=HTMLResponse)
+    def my_order_detail(request: Request, order_id: str):
+        customer = current_customer(request)
+        if not customer:
+            return redirect("/shop/login")
+        o = get_shop().order_of(customer["customer_id"], order_id)
+        if not o:
+            return not_found(request, f"주문 {order_id}", customer)
+        return render(request, "order_detail.html", customer, o=o)
 
     return router

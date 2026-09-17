@@ -150,3 +150,108 @@ def test_search_is_escaped(client):
     r = client.get("/shop", params={"q": "<script>alert(1)</script>"})
     assert r.status_code == 200
     assert "<script>alert(1)</script>" not in r.text and "&lt;script&gt;" in r.text
+
+
+def _login(c, con):
+    phone = con.execute("select phone from customers order by customer_id limit 1").fetchone()[0]
+    assert c.post("/shop/login", data={"phone": phone}, follow_redirects=False).status_code == 303
+
+
+def test_cart_add_update_and_quote(client):
+    with TestClient(client.app) as c:
+        add = c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 2, "option": "M"},
+                     follow_redirects=False)
+        assert add.status_code == 303 and add.headers["location"] == "/shop/cart"
+
+        cart = c.get("/shop/cart")
+        assert "요일팬티 7종 세트" in cart.text and "49,800원" in cart.text
+
+        c.post("/shop/cart/update", data={"product_id": "P1001", "qty": 1}, follow_redirects=False)
+        assert "24,900원" in c.get("/shop/cart").text
+
+        c.post("/shop/cart/update", data={"product_id": "P1001", "qty": 0}, follow_redirects=False)
+        assert "장바구니가 비어" in c.get("/shop/cart").text
+
+
+def test_cart_add_merges_same_product_and_option(client):
+    with TestClient(client.app) as c:
+        c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": "M"}, follow_redirects=False)
+        c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": "M"}, follow_redirects=False)
+        cart = c.get("/shop/cart")
+        # 두 번 담아도 한 줄로 합쳐져 수량 2, 단가*2 총액만 보여야 한다 (24,900*2=49,800)
+        assert "49,800원" in cart.text
+        assert cart.text.count("요일팬티 7종 세트") == 1
+
+
+def test_cart_update_only_touches_matching_line(client):
+    with TestClient(client.app) as c:
+        c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": "M"}, follow_redirects=False)
+        c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": "L"}, follow_redirects=False)
+        # M 옵션 줄만 삭제해도 L 옵션 줄은 남아야 한다
+        c.post("/shop/cart/update", data={"product_id": "P1001", "option": "M", "qty": 0}, follow_redirects=False)
+        cart_text = c.get("/shop/cart").text
+        assert "장바구니가 비어" not in cart_text and "24,900원" in cart_text
+
+
+def test_checkout_requires_login(client):
+    with TestClient(client.app) as c:
+        c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": ""}, follow_redirects=False)
+        r = c.get("/shop/checkout", follow_redirects=False)
+        assert r.status_code == 303 and "/shop/login" in r.headers["location"]
+
+
+def test_order_flow_creates_order_visible_in_admin(client, modumall_dir_module):
+    import sqlite3
+    con = sqlite3.connect(str(load_domain(modumall_dir_module).db_path))
+    with TestClient(client.app) as c:
+        _login(c, con)
+        c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": "M"}, follow_redirects=False)
+        done = c.post("/shop/checkout", follow_redirects=False)
+        assert done.status_code == 303
+        location = done.headers["location"]
+        assert location.startswith("/shop/orders/O-")
+        order_id = location.rsplit("/", 1)[1]
+
+        detail = c.get(location)
+        assert detail.status_code == 200 and order_id in detail.text and "요일팬티 7종 세트" in detail.text
+        assert "주문이 접수되었습니다" in detail.text
+
+        assert "장바구니가 비어" in c.get("/shop/cart").text            # 주문 후 장바구니는 비워진다
+        assert order_id in c.get("/shop/orders").text
+        assert order_id in c.get(f"/admin/orders/{order_id}").text      # 어드민에도 보인다
+
+
+def test_order_detail_of_other_customer_is_404(client, modumall_dir_module):
+    import sqlite3
+    con = sqlite3.connect(str(load_domain(modumall_dir_module).db_path))
+    other = con.execute("select order_id from orders where customer_id != (select customer_id from customers "
+                        "order by customer_id limit 1) limit 1").fetchone()[0]
+    with TestClient(client.app) as c:
+        _login(c, con)
+        assert c.get(f"/shop/orders/{other}").status_code == 404
+
+
+def test_checkout_rejects_soldout_product(client, modumall_dir_module):
+    import sqlite3
+    con = sqlite3.connect(str(load_domain(modumall_dir_module).db_path))
+    soldout = con.execute("select product_id from products where soldout=1 limit 1").fetchone()[0]
+    with TestClient(client.app) as c:
+        _login(c, con)
+        c.post("/shop/cart/add", data={"product_id": soldout, "qty": 1, "option": ""}, follow_redirects=False)
+        r = c.post("/shop/checkout", follow_redirects=True)
+        assert "품절" in r.text
+
+
+def test_checkout_blocked_message_is_deduplicated(client, modumall_dir_module):
+    """같은 상품이 옵션만 다르게 두 줄로 담겨 함께 품절이면, 화면에는 같은 사유 문구가 한 번만 보여야 한다."""
+    import sqlite3
+    con = sqlite3.connect(str(load_domain(modumall_dir_module).db_path))
+    soldout = con.execute("select product_id, name from products where soldout=1 limit 1").fetchone()
+    soldout_id, soldout_name = soldout
+    with TestClient(client.app) as c:
+        _login(c, con)
+        c.post("/shop/cart/add", data={"product_id": soldout_id, "qty": 1, "option": "A"}, follow_redirects=False)
+        c.post("/shop/cart/add", data={"product_id": soldout_id, "qty": 1, "option": "B"}, follow_redirects=False)
+        r = c.post("/shop/checkout", follow_redirects=True)
+        reason = f"{soldout_name} 은(는) 품절입니다."
+        assert r.text.count(reason) == 1

@@ -2,5 +2,21 @@
 {% block title %}내 주문{% endblock %}
 {% block body %}
 <h1>내 주문</h1>
-<p class="empty">주문 내역 화면은 준비 중입니다.</p>
+{% if not rows %}
+<p class="empty">주문 내역이 없습니다.</p>
+{% else %}
+<table>
+  <thead><tr><th>주문번호</th><th>주문일</th><th>상태</th><th>금액</th></tr></thead>
+  <tbody>
+  {% for o in rows %}
+    <tr>
+      <td><a href="/shop/orders/{{ o.order_id }}">{{ o.order_id }}</a></td>
+      <td>{{ o.ordered_at | mmdd }}</td>
+      <td>{{ o.status }}</td>
+      <td class="num">{{ o.order_amount | won }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
 {% endblock %}

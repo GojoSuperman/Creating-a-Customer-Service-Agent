@@ -1,0 +1,33 @@
+{% extends "shop/base_shop.html" %}
+{% block title %}주문 확인{% endblock %}
+{% block body %}
+<h1>주문 확인</h1>
+<h2>배송지</h2>
+<dl class="kv">
+  <dt>지역</dt><dd>{{ customer.address_region or "-" }}</dd>
+  <dt>주소</dt><dd>{{ customer.address or "-" }}</dd>
+</dl>
+<h2>품목</h2>
+<table>
+  <thead><tr><th>상품</th><th>옵션</th><th>단가</th><th>수량</th><th>금액</th></tr></thead>
+  <tbody>
+  {% for line in quote.lines %}
+    <tr>
+      <td>{{ line.name }}</td>
+      <td>{{ line.option or "-" }}</td>
+      <td class="num">{{ line.price | won }}</td>
+      <td class="num">{{ line.qty }}</td>
+      <td class="num">{{ line.amount | won }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<dl class="kv">
+  <dt>상품 합계</dt><dd>{{ quote.subtotal | won }}</dd>
+  <dt>배송비</dt><dd>{{ "무료배송" if quote.free_shipping_applied else quote.shipping_fee | won }}</dd>
+  <dt>총 결제 금액</dt><dd>{{ quote.total | won }}</dd>
+</dl>
+<form method="post" action="/shop/checkout">
+  <button type="submit">결제하고 주문하기</button>
+</form>
+{% endblock %}

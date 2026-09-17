@@ -1,0 +1,49 @@
+{% extends "shop/base_shop.html" %}
+{% block title %}장바구니{% endblock %}
+{% block body %}
+<h1>장바구니</h1>
+{% if blocked %}
+<ul class="error">
+  {% for reason in blocked %}<li>{{ reason }}</li>{% endfor %}
+</ul>
+{% endif %}
+{% if not quote.lines %}
+<p class="empty">장바구니가 비어 있습니다.</p>
+{% else %}
+<table>
+  <thead><tr><th>상품</th><th>옵션</th><th>단가</th><th>수량</th><th>금액</th><th></th></tr></thead>
+  <tbody>
+  {% for line in quote.lines %}
+    <tr>
+      <td>{{ line.name }}</td>
+      <td>{{ line.option or "-" }}</td>
+      <td class="num">{{ line.price | won }}</td>
+      <td>
+        <form class="cart-update" method="post" action="/shop/cart/update">
+          <input type="hidden" name="product_id" value="{{ line.product_id }}">
+          <input type="hidden" name="option" value="{{ line.option or '' }}">
+          <input type="number" name="qty" value="{{ line.qty }}" min="0" max="99">
+          <button type="submit">변경</button>
+        </form>
+      </td>
+      <td class="num">{{ line.amount | won }}</td>
+      <td>
+        <form class="cart-update" method="post" action="/shop/cart/update">
+          <input type="hidden" name="product_id" value="{{ line.product_id }}">
+          <input type="hidden" name="option" value="{{ line.option or '' }}">
+          <input type="hidden" name="qty" value="0">
+          <button type="submit">삭제</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<dl class="kv">
+  <dt>상품 합계</dt><dd>{{ quote.subtotal | won }}</dd>
+  <dt>배송비</dt><dd>{{ "무료배송" if quote.free_shipping_applied else quote.shipping_fee | won }}</dd>
+  <dt>총 결제 금액</dt><dd>{{ quote.total | won }}</dd>
+</dl>
+<a class="button" href="/shop/checkout">주문하기</a>
+{% endif %}
+{% endblock %}
