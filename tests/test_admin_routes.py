@@ -34,18 +34,20 @@ def client(modumall_dir_module):
     return TestClient(create_app(FakePipelineWithRepo(domain.db_path), domain))
 
 
-@pytest.mark.parametrize("path,text", [
-    ("/admin", "요약"),
-    ("/admin/orders", "주문"),
-    ("/admin/returns", "반품·교환"),
-    ("/admin/calls", "통화 로그"),
-    ("/admin/customers", "고객"),
+@pytest.mark.parametrize("path,h1", [
+    ("/admin", "<h1>요약</h1>"),
+    ("/admin/orders", "<h1>주문</h1>"),
+    ("/admin/returns", "<h1>반품·교환</h1>"),
+    ("/admin/calls", "<h1>통화 로그</h1>"),
+    ("/admin/customers", "<h1>고객</h1>"),
 ])
-def test_list_pages_render(client, path, text):
+def test_list_pages_render(client, path, h1):
+    # nav 가 모든 페이지에 "주문"/"반품·교환"/"통화 로그"/"고객" 을 링크 텍스트로 렌더하므로
+    # 단순 substring 검사는 상시-참이 된다. 각 화면 고유의 <h1> 마크업으로 검증한다.
     r = client.get(path)
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
-    assert text in r.text
+    assert h1 in r.text
 
 
 def test_home_shows_summary_numbers(client):
@@ -84,25 +86,47 @@ def test_order_detail_page(client):
 def test_return_detail_page(client):
     r = client.get("/admin/returns/R-2001")
     assert r.status_code == 200
-    assert "접수" in r.text and "/admin/orders/O-1006" in r.text
+    assert "/admin/orders/O-1006" in r.text
+    # "접수" 는 <dt>접수일</dt> 라벨 때문에 상시-참이 된다. 단계 이력 섹션에서만 나오는
+    # 실제 이력 데이터(수거대기/입고완료)로 렌더링 여부를 검증한다.
+    assert "수거대기" in r.text and "입고완료" in r.text
 
 
 def test_customer_detail_page(client):
-    # 목록 응답에서 실제 존재하는 고객 ID 를 뽑아 상세를 연다 (하드코딩 금지)
-    listing = client.get("/admin/customers", params={"page": 1})
-    cid = re.search(r"C-\d+", listing.text).group()
+    # 주문 목록에서 (고객 ID, 고객명) 쌍을 함께 뽑는다 — 주문이 있는 고객이라는 보장도 된다
+    # (id·이름 하드코딩 금지, 공유 DB 는 가변 자원).
+    listing = client.get("/admin/orders", params={"page": 1})
+    m = re.search(r'/admin/customers/(C-\d+)">([^<]+)</a>', listing.text)
+    assert m, "주문 목록에 고객 링크가 없음"
+    cid, name = m.group(1), m.group(2)
     r = client.get(f"/admin/customers/{cid}")
     assert r.status_code == 200
-    assert "주문" in r.text and "통화" in r.text
+    assert f"<h1>{name}</h1>" in r.text
+    assert "/admin/orders/" in r.text
 
 
 def test_call_detail_page(client):
-    # 통화 목록에서 실제 링크된 통화 ID 를 뽑아 상세를 연다 (call_id 하드코딩 금지 — 공유 DB 는 가변)
-    listing = client.get("/admin/calls", params={"page": 1})
-    m = re.search(r'/admin/calls/([^"]+)"', listing.text)
-    assert m, "통화 목록에 상세 링크가 없음"
-    r = client.get(f"/admin/calls/{m.group(1)}")
+    # 통화 목록에서 실제 링크된 통화 ID 와 그 행의 턴 수를 함께 뽑는다
+    # (call_id 하드코딩 금지 — 공유 DB 의 call_logs 는 다른 테스트가 쓰는 가변 자원).
+    # 턴 수 0 인 행은 뮤테이션 테스트로 고정값과 구분이 안 되므로 0 이 아닌 행을 고른다.
+    row_pattern = re.compile(
+        r'<td><a href="/admin/calls/([^"]+)">.*?</a></td>\s*'
+        r'<td>.*?</td>\s*<td>.*?</td>\s*<td>.*?</td>\s*<td>(\d+)</td>', re.S)
+    call_id = turn_count = None
+    for page in range(1, 10):
+        listing = client.get("/admin/calls", params={"page": page})
+        rows = row_pattern.findall(listing.text)
+        if not rows:
+            break
+        nonzero = next((row for row in rows if row[1] != "0"), None)
+        if nonzero:
+            call_id, turn_count = nonzero
+            break
+    assert call_id, "턴이 있는 통화를 찾지 못함"
+    r = client.get(f"/admin/calls/{call_id}")
     assert r.status_code == 200
+    detail_turns = re.search(r"턴 수</dt>\s*<dd>(\d+)</dd>", r.text)
+    assert detail_turns and detail_turns.group(1) == turn_count
 
 
 @pytest.mark.parametrize("path", [
