@@ -171,12 +171,18 @@ def shop_router(repo, domain) -> APIRouter:
         response.delete_cookie(SESSION_COOKIE, path=COOKIE_PATH)
         return response
 
+    def _missing_lines(shop, cart):
+        """더 이상 존재하지 않는(삭제된) 상품이 담긴 줄. quote() 는 이런 줄을 조용히 건너뛰므로
+        화면에 따로 보여주지 않으면 사용자가 뺄 방법이 없는 막다른 장바구니가 된다."""
+        return [line for line in cart if shop.product(line["product_id"]) is None]
+
     # ── 장바구니 ────────────────────────────────────────
     @router.get("/cart", response_class=HTMLResponse)
     def cart_view(request: Request):
         cart = cart_of(request)
         shop = get_shop()
-        return render(request, "cart.html", current_customer(request), quote=shop.quote(cart), blocked=[])
+        return render(request, "cart.html", current_customer(request), quote=shop.quote(cart), blocked=[],
+                      missing=_missing_lines(shop, cart))
 
     @router.post("/cart/add")
     async def cart_add(request: Request):
@@ -255,8 +261,9 @@ def shop_router(repo, domain) -> APIRouter:
         except OrderError as e:
             reasons = [e.message, *e.blocked]
             deduped = list(dict.fromkeys(reasons))  # 같은 상품이 여러 줄이면 같은 사유가 반복되므로 순서를 지키며 중복 제거
-            return render(request, "cart.html", customer, quote=shop.quote(cart), blocked=deduped)
-        response = redirect(f"/shop/orders/{order_id}")
+            return render(request, "cart.html", customer, quote=shop.quote(cart), blocked=deduped,
+                          missing=_missing_lines(shop, cart))
+        response = redirect(f"/shop/orders/{order_id}?new=1")
         set_cart(response, [])                    # 주문이 끝나면 장바구니를 비운다
         return response
 
@@ -268,13 +275,13 @@ def shop_router(repo, domain) -> APIRouter:
         return render(request, "orders.html", customer, rows=get_shop().orders_of(customer["customer_id"]))
 
     @router.get("/orders/{order_id}", response_class=HTMLResponse)
-    def my_order_detail(request: Request, order_id: str):
+    def my_order_detail(request: Request, order_id: str, new: str = ""):
         customer = current_customer(request)
         if not customer:
             return redirect("/shop/login")
         o = get_shop().order_of(customer["customer_id"], order_id)
         if not o:
             return not_found(request, f"주문 {order_id}", customer)
-        return render(request, "order_detail.html", customer, o=o)
+        return render(request, "order_detail.html", customer, o=o, just_ordered=bool(new))
 
     return router

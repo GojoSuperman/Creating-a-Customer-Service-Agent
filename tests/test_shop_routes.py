@@ -157,6 +157,14 @@ def _login(c, con):
     assert c.post("/shop/login", data={"phone": phone}, follow_redirects=False).status_code == 303
 
 
+def _subtotal_line(html: str) -> str:
+    """상품 합계 <dd> 를 그대로 뽑는다 — 단가 열은 수량과 무관하게 항상 같은 문자열을 담고 있어
+    "24,900원 in text" 같은 단언은 수량이 실제로 바뀌었는지 전혀 검증하지 못한다(실측)."""
+    m = re.search(r"<dt>상품 합계</dt><dd>([^<]+)</dd>", html)
+    assert m, "상품 합계 표시를 찾지 못함"
+    return m.group(1)
+
+
 def test_cart_add_update_and_quote(client):
     with TestClient(client.app) as c:
         add = c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 2, "option": "M"},
@@ -164,10 +172,12 @@ def test_cart_add_update_and_quote(client):
         assert add.status_code == 303 and add.headers["location"] == "/shop/cart"
 
         cart = c.get("/shop/cart")
-        assert "요일팬티 7종 세트" in cart.text and "49,800원" in cart.text
+        assert "요일팬티 7종 세트" in cart.text
+        assert _subtotal_line(cart.text) == "49,800원"
 
         c.post("/shop/cart/update", data={"product_id": "P1001", "qty": 1}, follow_redirects=False)
-        assert "24,900원" in c.get("/shop/cart").text
+        # 수량을 2 -> 1 로 줄였으니 상품 합계도 실제로 절반(24,900원)이 되어야 한다
+        assert _subtotal_line(c.get("/shop/cart").text) == "24,900원"
 
         c.post("/shop/cart/update", data={"product_id": "P1001", "qty": 0}, follow_redirects=False)
         assert "장바구니가 비어" in c.get("/shop/cart").text
@@ -187,10 +197,14 @@ def test_cart_update_only_touches_matching_line(client):
     with TestClient(client.app) as c:
         c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": "M"}, follow_redirects=False)
         c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": "L"}, follow_redirects=False)
-        # M 옵션 줄만 삭제해도 L 옵션 줄은 남아야 한다
+        before = _subtotal_line(c.get("/shop/cart").text)
+        assert before == "49,800원"  # 두 줄(M, L) 합계
+        # M 옵션 줄만 삭제해도 L 옵션 줄은 남아야 한다 — no-op 돌연변이라면 두 줄 다 남아 합계가 그대로일 것
         c.post("/shop/cart/update", data={"product_id": "P1001", "option": "M", "qty": 0}, follow_redirects=False)
         cart_text = c.get("/shop/cart").text
-        assert "장바구니가 비어" not in cart_text and "24,900원" in cart_text
+        assert "장바구니가 비어" not in cart_text
+        assert _subtotal_line(cart_text) == "24,900원"  # L 옵션 한 줄만 남아야 한다
+        assert cart_text.count('name="option" value="M"') == 0  # M 옵션 줄 자체가 사라져야 한다
 
 
 def test_checkout_requires_login(client):
@@ -209,16 +223,37 @@ def test_order_flow_creates_order_visible_in_admin(client, modumall_dir_module):
         done = c.post("/shop/checkout", follow_redirects=False)
         assert done.status_code == 303
         location = done.headers["location"]
-        assert location.startswith("/shop/orders/O-")
-        order_id = location.rsplit("/", 1)[1]
+        path = location.split("?", 1)[0]
+        assert path.startswith("/shop/orders/O-")
+        order_id = path.rsplit("/", 1)[1]
 
         detail = c.get(location)
         assert detail.status_code == 200 and order_id in detail.text and "요일팬티 7종 세트" in detail.text
-        assert "주문이 접수되었습니다" in detail.text
+        assert "주문이 접수되었습니다" in detail.text            # 방금 주문한 직후에는 접수 안내가 보인다
 
         assert "장바구니가 비어" in c.get("/shop/cart").text            # 주문 후 장바구니는 비워진다
         assert order_id in c.get("/shop/orders").text
         assert order_id in c.get(f"/admin/orders/{order_id}").text      # 어드민에도 보인다
+
+
+def test_order_detail_banner_only_shows_right_after_ordering(client, modumall_dir_module):
+    """주문 직후(체크아웃 리다이렉트)에는 접수 안내가 보이지만, 나중에(예: 내 주문 목록에서 링크를 눌러)
+    같은 주문 상세를 다시 봤을 때는 보이면 안 된다 — 과거 주문에도 항상 뜨던 버그 회귀 테스트."""
+    import sqlite3
+    con = sqlite3.connect(str(load_domain(modumall_dir_module).db_path))
+    with TestClient(client.app) as c:
+        _login(c, con)
+        c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": "M"}, follow_redirects=False)
+        done = c.post("/shop/checkout", follow_redirects=False)
+        location = done.headers["location"]
+
+        just_ordered = c.get(location)
+        assert "주문이 접수되었습니다" in just_ordered.text
+
+        order_id = location.split("?", 1)[0].rsplit("/", 1)[1]
+        later = c.get(f"/shop/orders/{order_id}")            # 주문 목록에서 다시 들어온 것처럼 쿼리 없이 재방문
+        assert later.status_code == 200
+        assert "주문이 접수되었습니다" not in later.text
 
 
 def test_order_detail_of_other_customer_is_404(client, modumall_dir_module):
@@ -234,12 +269,33 @@ def test_order_detail_of_other_customer_is_404(client, modumall_dir_module):
 def test_checkout_rejects_soldout_product(client, modumall_dir_module):
     import sqlite3
     con = sqlite3.connect(str(load_domain(modumall_dir_module).db_path))
-    soldout = con.execute("select product_id from products where soldout=1 limit 1").fetchone()[0]
+    soldout_id, stock_before = con.execute(
+        "select product_id, stock from products where soldout=1 limit 1").fetchone()
+    orders_before = con.execute("select count(*) from orders").fetchone()[0]
     with TestClient(client.app) as c:
         _login(c, con)
-        c.post("/shop/cart/add", data={"product_id": soldout, "qty": 1, "option": ""}, follow_redirects=False)
+        c.post("/shop/cart/add", data={"product_id": soldout_id, "qty": 1, "option": ""}, follow_redirects=False)
         r = c.post("/shop/checkout", follow_redirects=True)
         assert "품절" in r.text
+
+    # 스펙 4-4: 주문이 거부되면 흔적(주문 행·재고 변화)을 남기지 않아야 한다 — id·건수 하드코딩 없이 확인
+    orders_after = con.execute("select count(*) from orders").fetchone()[0]
+    stock_after = con.execute("select stock from products where product_id=?", (soldout_id,)).fetchone()[0]
+    assert orders_after == orders_before
+    assert stock_after == stock_before
+
+
+def test_cart_with_missing_product_can_be_emptied(client):
+    """존재하지 않는 상품 id 로 담아도 삭제할 방법이 있어야 한다 — 예전에는 quote() 가 이런 줄을
+    조용히 건너뛰어 "장바구니가 비어 있습니다"로 보이면서 삭제 폼도 없는 막다른 상태가 됐었다."""
+    with TestClient(client.app) as c:
+        c.post("/shop/cart/add", data={"product_id": "P-NOPE", "qty": 1, "option": ""}, follow_redirects=False)
+        cart = c.get("/shop/cart")
+        assert "장바구니가 비어" not in cart.text
+        assert 'value="P-NOPE"' in cart.text          # 삭제 폼이 실제로 렌더된다
+
+        c.post("/shop/cart/update", data={"product_id": "P-NOPE", "option": "", "qty": 0}, follow_redirects=False)
+        assert "장바구니가 비어" in c.get("/shop/cart").text   # 삭제하면 정말로 빠져나올 수 있다
 
 
 def test_checkout_blocked_message_is_deduplicated(client, modumall_dir_module):

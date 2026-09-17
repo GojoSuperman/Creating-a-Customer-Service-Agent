@@ -7,9 +7,34 @@
   {% for reason in blocked %}<li>{{ reason }}</li>{% endfor %}
 </ul>
 {% endif %}
-{% if not quote.lines %}
+{% if missing %}
+<div class="notice">
+  <p>판매가 중지되어 더 이상 주문할 수 없는 상품입니다. 삭제해 주세요.</p>
+  <table>
+    <thead><tr><th>상품 ID</th><th>옵션</th><th>수량</th><th></th></tr></thead>
+    <tbody>
+    {% for line in missing %}
+      <tr>
+        <td>{{ line.product_id }}</td>
+        <td>{{ line.option or "-" }}</td>
+        <td>{{ line.qty }}</td>
+        <td>
+          <form class="cart-update" method="post" action="/shop/cart/update">
+            <input type="hidden" name="product_id" value="{{ line.product_id }}">
+            <input type="hidden" name="option" value="{{ line.option or '' }}">
+            <input type="hidden" name="qty" value="0">
+            <button type="submit">삭제</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% if not quote.lines and not missing %}
 <p class="empty">장바구니가 비어 있습니다.</p>
-{% else %}
+{% elif quote.lines %}
 <table>
   <thead><tr><th>상품</th><th>옵션</th><th>단가</th><th>수량</th><th>금액</th><th></th></tr></thead>
   <tbody>
