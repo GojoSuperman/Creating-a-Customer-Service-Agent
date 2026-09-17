@@ -11,6 +11,7 @@ MAX_CART_LINES = 20
 MAX_QTY = 99
 MAX_PRODUCT_ID_LEN = 40
 MAX_OPTION_LEN = 80
+MAX_COOKIE_BYTES = 3800  # 브라우저 쿠키 4096바이트 한도에서 이름·속성 오버헤드를 뺀 여유값
 
 _EPHEMERAL = None
 
@@ -60,19 +61,8 @@ def unsign(token, purpose):
     return text[len(prefix):]
 
 
-def dump_cart(items) -> str:
-    return sign(json.dumps(items, ensure_ascii=False, separators=(",", ":")), "cart")
-
-
-def load_cart(token):
-    """서명·형식이 조금이라도 이상하면 빈 장바구니로 돌려준다 (오류 화면 대신)."""
-    raw = unsign(token, "cart")
-    if not raw:
-        return []
-    try:
-        items = json.loads(raw)
-    except ValueError:
-        return []
+def _normalize_items(items):
+    """원본 리스트에서 형식이 맞는 줄만 골라 길이를 절단한다 (줄 단위 방어 — 전체 크기 상한은 별도)."""
     if not isinstance(items, list):
         return []
     out = []
@@ -94,3 +84,39 @@ def load_cart(token):
                     "option": option,
                     "qty": max(1, min(MAX_QTY, qty))})
     return out
+
+
+def _sign_cart(normalized):
+    return sign(json.dumps(normalized, ensure_ascii=False, separators=(",", ":")), "cart")
+
+
+def _fit_within_cookie_cap(normalized):
+    """서명된 토큰이 MAX_COOKIE_BYTES 를 넘으면 뒤쪽 줄부터 하나씩 버리고 다시 서명한다.
+
+    줄 하나도 안 들어갈 만큼 커도(이론상) 결국 빈 리스트로 수렴해 항상 한도 안의 토큰을 돌려준다.
+    """
+    token = _sign_cart(normalized)
+    while len(token.encode("utf-8")) > MAX_COOKIE_BYTES and normalized:
+        normalized = normalized[:-1]
+        token = _sign_cart(normalized)
+    return normalized, token
+
+
+def dump_cart(items) -> str:
+    normalized = _normalize_items(items)
+    _, token = _fit_within_cookie_cap(normalized)
+    return token
+
+
+def load_cart(token):
+    """서명·형식이 조금이라도 이상하면 빈 장바구니로 돌려준다 (오류 화면 대신)."""
+    raw = unsign(token, "cart")
+    if not raw:
+        return []
+    try:
+        items = json.loads(raw)
+    except ValueError:
+        return []
+    normalized = _normalize_items(items)
+    trimmed, _ = _fit_within_cookie_cap(normalized)
+    return trimmed

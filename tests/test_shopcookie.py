@@ -107,6 +107,30 @@ def test_load_cart_drops_bool_qty():
     assert [l["product_id"] for l in loaded] == ["P1003"]
 
 
+def test_dump_cart_caps_token_size_by_dropping_trailing_lines():
+    """줄 단위 절단(40/80자)만으론 20줄이면 여전히 쿠키 한도를 넘을 수 있다 — 전체 토큰에 바이트 상한을 건다."""
+    items = [{"product_id": f"P{i:04d}", "option": "긴옵션" * 1666, "qty": 1} for i in range(20)]
+    token = shopcookie.dump_cart(items)
+    assert len(token.encode("utf-8")) <= shopcookie.MAX_COOKIE_BYTES
+
+
+def test_load_cart_of_oversized_token_drops_trailing_lines_but_keeps_front_order():
+    items = [{"product_id": f"P{i:04d}", "option": "긴옵션" * 1666, "qty": 1} for i in range(20)]
+    token = shopcookie.dump_cart(items)
+    loaded = shopcookie.load_cart(token)
+    assert 0 < len(loaded) < 20
+    assert [l["product_id"] for l in loaded] == [f"P{i:04d}" for i in range(len(loaded))]
+
+
+def test_dump_cart_keeps_all_lines_for_ordinary_cart():
+    items = [{"product_id": "P1001", "option": "사이즈 M", "qty": 1},
+             {"product_id": "P1002", "option": None, "qty": 2},
+             {"product_id": "P1003", "option": "색상 블랙", "qty": 3}]
+    token = shopcookie.dump_cart(items)
+    assert len(token.encode("utf-8")) <= shopcookie.MAX_COOKIE_BYTES
+    assert len(shopcookie.load_cart(token)) == 3
+
+
 def test_ephemeral_key_is_used_when_env_missing(monkeypatch):
     monkeypatch.delenv("SHOP_SECRET", raising=False)
     monkeypatch.setattr(shopcookie, "_EPHEMERAL", None)
