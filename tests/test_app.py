@@ -120,6 +120,37 @@ def test_masked_key_fragment_is_also_redacted(modumall_dir):
     assert "[REDACTED]" in body
 
 
+class HeaderKeyLeakPipeline(FakePipeline):
+    """예외 메시지에 이번 요청의 키 원문을 그대로 실어 보낸다. 정규식(_KEY_PATTERN)은
+    "sk-" 로 시작하지 않는 키나 중간에 공백이 섞인 키를 놓친다(실측 확인) — 이 요청에서
+    실제로 쓰인 키 문자열 자체를 literal 치환하는 이중 방어(server.llmkey.current_request_key)
+    가 있어야 걸러진다."""
+    def turn(self, call_id, text, api_key=None):
+        raise RuntimeError(f"upstream rejected key: {api_key}")
+
+
+def test_non_sk_prefixed_key_is_redacted_via_literal_replace(modumall_dir):
+    c = TestClient(create_app(HeaderKeyLeakPipeline(), load_domain(modumall_dir)), raise_server_exceptions=False)
+    c.post("/api/call/start")
+    odd_key = "NOSKPREFIX1234567890abcdef"
+    r = c.post("/api/call/turn", json={"call_id": "abc", "text": "배송비"},
+               headers={"X-OpenAI-Key": odd_key})
+    assert r.status_code == 500
+    assert odd_key not in r.text
+    assert "[REDACTED]" in r.text
+
+
+def test_key_with_embedded_space_is_redacted_via_literal_replace(modumall_dir):
+    c = TestClient(create_app(HeaderKeyLeakPipeline(), load_domain(modumall_dir)), raise_server_exceptions=False)
+    c.post("/api/call/start")
+    spaced_key = "sk-abc def-1234567890"
+    r = c.post("/api/call/turn", json={"call_id": "abc", "text": "배송비"},
+               headers={"X-OpenAI-Key": spaced_key})
+    assert r.status_code == 500
+    assert spaced_key not in r.text
+    assert "[REDACTED]" in r.text
+
+
 def test_index_served(client):
     r = client.get("/")
     assert r.status_code == 200 and "<html" in r.text.lower()

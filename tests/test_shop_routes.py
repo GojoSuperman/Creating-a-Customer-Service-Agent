@@ -45,7 +45,23 @@ def domain(modumall_dir_module):
 
 
 @pytest.fixture(scope="module")
-def app(domain, monkeypatch_module_secret):
+def monkeypatch_module_open_admin():
+    # test_order_flow_creates_order_visible_in_admin 이 /admin/orders 를 확인한다.
+    # ADMIN_PASSWORD 없이도(fail-closed 503 대신) 열리도록 로컬 개발 옵트인을 켠다.
+    prev_password = os.environ.pop("ADMIN_PASSWORD", None)
+    prev_allow = os.environ.get("ALLOW_OPEN_ADMIN")
+    os.environ["ALLOW_OPEN_ADMIN"] = "1"
+    yield
+    if prev_password is not None:
+        os.environ["ADMIN_PASSWORD"] = prev_password
+    if prev_allow is None:
+        os.environ.pop("ALLOW_OPEN_ADMIN", None)
+    else:
+        os.environ["ALLOW_OPEN_ADMIN"] = prev_allow
+
+
+@pytest.fixture(scope="module")
+def app(domain, monkeypatch_module_secret, monkeypatch_module_open_admin):
     return create_app(FakePipelineWithRepo(domain.db_path), domain)
 
 

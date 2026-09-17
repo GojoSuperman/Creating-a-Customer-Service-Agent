@@ -662,3 +662,37 @@ def test_concurrent_turns_with_different_keys_do_not_mix(domain, settings, monke
     assert not errors
     for key in keys:
         assert results[key] == f"안내: 키={key}"
+
+
+# ── C1: 키별 캐시가 무제한으로 자라지 않는지(LRU 상한) ──────────────────────
+
+def test_router_and_answerer_caches_are_capped(domain, settings, monkeypatch):
+    """서로 다른 키 N+10 개로 호출해도 캐시 크기가 상한(_KEY_CACHE_MAXSIZE) 을 넘지 않는다.
+    공개 URL 에서 헤더만 바꿔 반복 호출해도 컨테이너가 OOM 으로 죽지 않게 하는 안전장치다."""
+    from server.pipeline import _KEY_CACHE_MAXSIZE
+
+    monkeypatch.setattr("server.router.build_router",
+                        lambda d, thr, classify=None, model=None, conf_margin=0.0, api_key=None: _KeyEchoRouter(api_key))
+    monkeypatch.setattr("server.answer.Answerer", _KeyEchoAnswerer)
+
+    p = Pipeline(domain, settings)
+    for i in range(_KEY_CACHE_MAXSIZE + 10):
+        p._router_for(f"sk-cap-test-{i}")
+        p._answerer_for(f"sk-cap-test-{i}")
+
+    assert len(p._router_cache) <= _KEY_CACHE_MAXSIZE
+    assert len(p._answerer_cache) <= _KEY_CACHE_MAXSIZE
+    # 상한이 실제로 "고정 상한" 인지(=넘치기 직전 크기와 같은지)도 확인 — 그냥 우연히
+    # 작은 게 아니라 넉넉히 넘겼는데도 상한에서 멈춰 있어야 한다.
+    assert len(p._router_cache) == _KEY_CACHE_MAXSIZE
+    assert len(p._answerer_cache) == _KEY_CACHE_MAXSIZE
+
+
+def test_router_cache_does_not_store_raw_api_key(domain, settings, monkeypatch):
+    """캐시 딕셔너리 내부에 원본 키 문자열이 그대로 남아 있으면 안 된다(해시만 남아야 함)."""
+    monkeypatch.setattr("server.router.build_router",
+                        lambda d, thr, classify=None, model=None, conf_margin=0.0, api_key=None: _KeyEchoRouter(api_key))
+    p = Pipeline(domain, settings)
+    secret_key = "sk-super-secret-value-12345"
+    p._router_for(secret_key)
+    assert secret_key not in p._router_cache._data

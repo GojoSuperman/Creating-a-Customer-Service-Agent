@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sqlite3
 
@@ -8,6 +9,23 @@ from fastapi.testclient import TestClient
 from server.app import create_app
 from server.domain import load_domain
 from server.pipeline import TurnResult
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _open_admin_env():
+    """이 파일은 어드민 화면 콘텐츠 렌더링만 검증한다(인증 자체는 test_admin_auth.py).
+    ADMIN_PASSWORD 없이도 열리도록 로컬 개발 옵트인(ALLOW_OPEN_ADMIN)을 켠 채로 돌린다.
+    module 스코프 autouse 라 이 모듈의 module 스코프 client 픽스처보다 먼저 적용된다."""
+    prev_password = os.environ.pop("ADMIN_PASSWORD", None)
+    prev_allow = os.environ.get("ALLOW_OPEN_ADMIN")
+    os.environ["ALLOW_OPEN_ADMIN"] = "1"
+    yield
+    if prev_password is not None:
+        os.environ["ADMIN_PASSWORD"] = prev_password
+    if prev_allow is None:
+        os.environ.pop("ALLOW_OPEN_ADMIN", None)
+    else:
+        os.environ["ALLOW_OPEN_ADMIN"] = prev_allow
 
 
 class FakePipelineWithRepo:

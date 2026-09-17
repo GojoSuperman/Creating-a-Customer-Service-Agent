@@ -1,5 +1,5 @@
 // 전화 상태 머신. IDLE → RINGING → SPEAKING ⇄ LISTENING → THINKING → ... → ENDED
-import { createVoice, preferredVoice, rememberVoice, voiceKey } from "./voice.js";
+import { createVoice, preferredVoice, rememberVoice, voiceKey, labelVoices } from "./voice.js";
 import { createPanel } from "./panel.js";
 import { createDbPanel } from "./dbpanel.js";
 import { createSettings } from "./settings.js";
@@ -206,10 +206,11 @@ $("btn-voice-preview").onclick = () => {
     let pref = preferredVoice(vs);
     if (!pref && vs.length) pref = vs[0];   // 저장된 선호 음성이 걸러진 목록에 없으면 첫 번째(로컬)로 대체
     if (pref) { voice.setVoice(pref); rememberVoice(pref); }
-    // 표시 이름 정리: 크롬 내장 음성 "Google 한국의" 는 "Google" 로 보여 준다 (음성은 동일)
-    const label = (v) => /^google/i.test(v.name) ? "Google" : v.name;
-    $("voice-select").innerHTML = vs.map((v) =>
-      `<option value="${esc(voiceKey(v))}" ${v === pref ? "selected" : ""}>${esc(label(v))}</option>`).join("");
+    // 표시 이름: 이름이 같은 음성이 여럿이면 언어·로컬온라인·순번을 붙여 구분한다
+    // (voice.js#labelVoices). 이름이 유일하면 이름 그대로 보여 준다.
+    const labels = labelVoices(vs);
+    $("voice-select").innerHTML = vs.map((v, i) =>
+      `<option value="${esc(voiceKey(v))}" ${v === pref ? "selected" : ""}>${esc(labels[i])}</option>`).join("");
   };
   fill(); if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = fill;
   setPhase("IDLE");

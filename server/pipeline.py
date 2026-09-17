@@ -6,9 +6,9 @@ route → answer → guard → (END | answer 재시도 | escalate)
 """
 import contextvars
 import datetime
+import hashlib
 import operator
 import re
-import threading
 import time
 import uuid
 from dataclasses import dataclass, asdict
@@ -21,7 +21,18 @@ from server import guardrail
 from server.callcontext import current_caller
 from server.config import Settings
 from server.domain import Domain
+from server.lrucache import LRUCache
 from server.repo import Repo
+
+# 방문자마다 다른 OpenAI 키(X-OpenAI-Key)로 라우터·답변기 인스턴스를 만들어 캐싱한다.
+# 공개 URL 에서 헤더만 바꿔 반복 호출하면 키 개수만큼 무제한으로 자라 OOM 이 나므로
+# 상한을 두고 넘치면 오래 쓰이지 않은 것부터 버린다(server/lrucache.py 참고).
+_KEY_CACHE_MAXSIZE = 32
+
+
+def _key_hash(api_key: str) -> str:
+    """캐시에 원본 키 대신 해시를 남긴다(캐시 자체가 들여다볼 수 있는 표면이라)."""
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
 # 데이터 생성기가 결정적으로 오늘 날짜를 이 값으로 고정해 두었다 (server/db/generate.py 참고).
 # 통화 인사말에서 "최근 14일 내 주문" 여부를 실측 시각과 무관하게 재현 가능하도록 상수로 둔다.
@@ -181,9 +192,8 @@ class Pipeline:
             answerer = Answerer(domain, model=settings.answer_model, max_tool_turns=settings.max_tool_turns)
         self.router = router
         self.answerer = answerer
-        self._router_cache: dict[str, object] = {}
-        self._answerer_cache: dict[str, object] = {}
-        self._cache_lock = threading.Lock()
+        self._router_cache: LRUCache = LRUCache(maxsize=_KEY_CACHE_MAXSIZE)
+        self._answerer_cache: LRUCache = LRUCache(maxsize=_KEY_CACHE_MAXSIZE)
         self.repo = Repo(domain.db_path)
         self.calls: set[str] = set()
         self.customers: dict[str, Optional[dict]] = {}
@@ -193,29 +203,24 @@ class Pipeline:
     def _router_for(self, api_key: Optional[str]):
         if self._router_injected or not api_key:
             return self.router
-        with self._cache_lock:
-            r = self._router_cache.get(api_key)
-        if r is None:
+
+        def factory():
             from server.router import build_router
-            r = build_router(self.domain, self.settings.conf_threshold, model=self.settings.router_model,
-                             conf_margin=self.settings.conf_margin, api_key=api_key)
-            with self._cache_lock:
-                self._router_cache.setdefault(api_key, r)
-                r = self._router_cache[api_key]
-        return r
+            return build_router(self.domain, self.settings.conf_threshold, model=self.settings.router_model,
+                                conf_margin=self.settings.conf_margin, api_key=api_key)
+
+        return self._router_cache.get_or_create(_key_hash(api_key), factory)
 
     def _answerer_for(self, api_key: Optional[str]):
         if self._answerer_injected or not api_key:
             return self.answerer
-        with self._cache_lock:
-            a = self._answerer_cache.get(api_key)
-        if a is None:
+
+        def factory():
             from server.answer import Answerer
-            a = Answerer(self.domain, model=self.settings.answer_model,
-                        max_tool_turns=self.settings.max_tool_turns, api_key=api_key)
-            with self._cache_lock:
-                self._answerer_cache.setdefault(api_key, a)
-                a = self._answerer_cache[api_key]
+            return Answerer(self.domain, model=self.settings.answer_model,
+                            max_tool_turns=self.settings.max_tool_turns, api_key=api_key)
+
+        a = self._answerer_cache.get_or_create(_key_hash(api_key), factory)
         return a
 
     # ── 노드 ──────────────────────────────────────────────

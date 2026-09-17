@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
 from server.domain import Domain
-from server.llmkey import redact
+from server.llmkey import current_request_key, redact
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -120,7 +120,19 @@ def create_app(pipeline, domain: Domain, tts=None, check_model: str = "gpt-4.1-m
         # 조용히 이관으로 바꾸지 않는다 — 원인이 그대로 보이게 500으로 드러낸다.
         # 다만 OpenAI 키가 예외 메시지에 섞여 나갈 수 있으므로(예: 인증 오류가 키 일부를
         # 되돌려주는 경우) redact 로 한 번 걸러낸다.
-        return JSONResponse(status_code=500, content={"detail": redact(f"{type(exc).__name__}: {exc}")})
+        #
+        # redact() 의 정규식(_KEY_PATTERN)은 "sk-" 로 시작하지 않는 키나 공백이 섞인 키를
+        # 놓친다(실측 확인). 이중 방어로 이 요청이 실어 온 키 원문 자체를 리터럴 치환
+        # 대상으로 잠깐 등록해 둔다. base Exception 핸들러는 Starlette 가 ServerErrorMiddleware
+        # (가장 바깥)에 연결하므로 요청 미들웨어의 try/finally 로는 이 시점까지 값이 남아
+        # 있다고 보장할 수 없다 — 그래서 request 에서 직접 헤더를 읽어 여기서 바로 채운다.
+        key = request.headers.get("x-openai-key")
+        token = current_request_key.set(key) if key else None
+        try:
+            return JSONResponse(status_code=500, content={"detail": redact(f"{type(exc).__name__}: {exc}")})
+        finally:
+            if token is not None:
+                current_request_key.reset(token)
 
     repo = getattr(pipeline, "repo", None)
     if repo is not None:

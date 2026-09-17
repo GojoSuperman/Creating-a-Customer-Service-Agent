@@ -18,22 +18,64 @@ export function rememberVoice(v) { try { localStorage.setItem(VOICE_PREF_KEY, v.
 // 바뀌면 어긋나므로 쓰지 않는다).
 export function voiceKey(v) { return v.voiceURI || `${v.name}|${v.lang}`; }
 
-// 한국어 음성만 추리고, name+lang 이 같은 중복 항목은 하나만 남긴다.
+// 한국어 음성만 추리고, 완전히 같은 음성(voiceURI 동일)만 하나로 합친다.
 // 주의: 어떤 음성이 실제로 소리를 내는지는 브라우저·OS·설치 상태에 따라 달라 UA 나
 // localService 값만으로는 추측할 수 없다(엣지에서도 원격 음성이 재생되는 사례가 실측으로
 // 확인됨). 그래서 여기서는 "될 것 같은 것"을 걸러내지 않고, 중복만 정리한다.
 // 실제로 소리가 나는지는 미리듣기 버튼으로 사용자가 직접 확인한다.
+// 예전에는 name+lang 이 같으면 같은 음성으로 보고 지웠는데, 이름이 같아도(예: 여러 "Google"
+// 음성) 실제로는 서로 다른 음성일 수 있어 실측 결과 소리가 나는 음성이 사라지는 문제가
+// 있었다. voiceURI 가 완전히 같은 경우만 같은 음성으로 본다(브라우저가 같은 음성을 중복
+// 노출하는 경우만 제거). voiceURI 가 없는 브라우저는 name+lang+localService 로 대체한다.
 export function dedupeVoices(voices) {
   const ko = (voices || []).filter(v => v.lang && v.lang.toLowerCase().startsWith("ko"));
   const seen = new Set();
   const deduped = [];
   for (const v of ko) {
-    const key = `${v.name}|${v.lang}`;
+    const key = v.voiceURI || `${v.name}|${v.lang}|${v.localService}`;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(v);
   }
   return deduped;
+}
+
+// 목록에 표시할 이름을 구분되게 만든다. 이름이 유일하면 이름만 그대로 보여 주고,
+// 같은 이름이 여러 개면 언어 태그·로컬/온라인 구분을 붙이고, 그래도 같으면 순번을 붙인다.
+// voices 와 같은 길이·순서의 라벨 배열을 반환한다 (voices[i] 의 라벨은 labelVoices(voices)[i]).
+export function labelVoices(voices) {
+  const list = voices || [];
+  const byName = new Map();
+  for (const v of list) {
+    const arr = byName.get(v.name) || [];
+    arr.push(v);
+    byName.set(v.name, arr);
+  }
+  const labelByKey = new Map();
+  for (const group of byName.values()) {
+    if (group.length === 1) {
+      labelByKey.set(voiceKey(group[0]), group[0].name);
+      continue;
+    }
+    const bases = group.map((v) => {
+      const svc = v.localService ? "로컬" : "온라인";
+      return v.lang ? `${v.name} (${svc} · ${v.lang})` : `${v.name} (${svc})`;
+    });
+    const baseCount = new Map();
+    for (const b of bases) baseCount.set(b, (baseCount.get(b) || 0) + 1);
+    const seenIdx = new Map();
+    group.forEach((v, i) => {
+      const base = bases[i];
+      if (baseCount.get(base) > 1) {
+        const idx = (seenIdx.get(base) || 0) + 1;
+        seenIdx.set(base, idx);
+        labelByKey.set(voiceKey(v), `${base} ${idx}`);
+      } else {
+        labelByKey.set(voiceKey(v), base);
+      }
+    });
+  }
+  return list.map((v) => labelByKey.get(voiceKey(v)));
 }
 
 const KO_DIGITS = "공일이삼사오육칠팔구";

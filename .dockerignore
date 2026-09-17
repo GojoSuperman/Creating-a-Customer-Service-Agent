@@ -7,8 +7,8 @@ logs/
 domains/*/*.db
 domains/*/*.db-*
 domains/*/*.db.tmp*
-__pycache__/
-*.pyc
+**/__pycache__/
+**/*.pyc
 .pytest_cache/
 .bkit/
 tests/
