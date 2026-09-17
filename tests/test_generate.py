@@ -1,7 +1,21 @@
 import json
+import shutil
 import sqlite3
+from pathlib import Path
+
 import pytest
 from server.db.generate import generate
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _domain_dir_copy(tmp_path):
+    """공유 DB(domains/modumall/modumall.db)를 건드리지 않도록, 임시 디렉터리에 도메인 파일을
+    복사해 그 위에서 generate() 를 돌린다. (test_generation_is_deterministic 의 방식과 동일)"""
+    tmp_dom = tmp_path / "modumall"
+    shutil.copytree(ROOT / "domains" / "modumall", tmp_dom, ignore=shutil.ignore_patterns("*.db"))
+    return tmp_dom
+
 
 CANON_PRODUCTS = ["P1001", "P1002", "P1003", "P2001", "P2002", "P2003", "P3001", "P3002", "P3003", "P3004",
                   "P3005", "P3006", "P4001", "P4002", "P5001", "P5002", "P5003", "P6001", "P6002", "P6003"]
@@ -152,3 +166,32 @@ def test_status_distribution(db):
             select 1 from order_items i join products p on p.product_id = i.product_id
             where i.order_id=? and p.made_to_order = 1""", (oid,)).fetchone()
         assert has_mto_item is not None, oid
+
+
+def test_return_progress_detail_matches_return_stage(tmp_path):
+    """반품·교환 진행 주문의 status_detail 은 그 반품의 현재 단계에서 파생돼야 한다."""
+    from server.db.generate import generate
+
+    db = generate(_domain_dir_copy(tmp_path))
+    con = sqlite3.connect(str(db))
+    # 손으로 만든 정식 주문(O-1006~1008)은 그 자체가 정답셋 기준이므로 이 일반 규칙 검사에서 제외한다
+    # (예: O-1008 은 품절로 인한 환불 전환 안내문이라 반품 단계 문구를 그대로 담지 않는다).
+    rows = con.execute(
+        "select o.order_id, o.status, o.status_detail, r.stage from orders o "
+        "join returns r on r.order_id = o.order_id "
+        "where o.status in ('반품진행','교환진행') and o.order_id > 'O-1011'").fetchall()
+    assert rows, "반품 진행 주문이 있어야 한다"
+    for order_id, status, detail, stage in rows:
+        assert stage in (detail or ""), f"{order_id}: 주문 상세 '{detail}' 가 반품 단계 '{stage}' 를 담지 않는다"
+
+
+def test_finished_return_is_not_in_progress(tmp_path):
+    """환불까지 끝난 반품의 주문이 '반품진행' 으로 남아 있으면 안 된다."""
+    from server.db.generate import generate
+
+    db = generate(_domain_dir_copy(tmp_path))
+    con = sqlite3.connect(str(db))
+    bad = con.execute(
+        "select o.order_id from orders o join returns r on r.order_id = o.order_id "
+        "where r.stage = '환불완료' and o.status in ('반품진행','교환진행')").fetchall()
+    assert bad == [], f"환불완료인데 진행 중으로 남은 주문: {bad}"

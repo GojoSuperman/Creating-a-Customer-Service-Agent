@@ -44,6 +44,19 @@ ORIGINS = ["대한민국", "중국", "베트남", "이탈리아", "인도네시�
 COURIERS = ["롯데택배"]
 RETURN_REASONS = ["사이즈가 맞지 않음", "색상이 상세페이지와 다름", "단순 변심", "배송 중 파손", "오배송", "소재가 기대와 다름", "봉제 불량"]
 
+# 반품·교환 단계 → 주문 화면에 보여줄 상세 문구. 주문과 반품이 다른 말을 하지 않도록 한 곳에서 파생한다.
+# (각 문구는 반품 단계 키 문자열을 공백 없이 그대로 포함해야 한다 — 상담 응답이 반품 단계를 실제로 담고 있는지
+# 검증하는 테스트가 이 문자열 포함 여부로 확인하기 때문.)
+RETURN_STAGE_DETAIL = {
+    "접수": "반품 접수",
+    "수거대기": "수거대기 · 기사님 방문 예정",
+    "수거완료": "수거완료 · 입고 대기",
+    "입고완료": "입고완료 · 검품 대기",
+    "검품중": "입고완료 · 검품중",
+    "승인": "승인완료 · 환불 처리중",
+    "환불완료": "환불 완료",
+}
+
 
 def dt(d: date, h=0, m=0):
     return datetime(d.year, d.month, d.day, h, m).strftime("%Y-%m-%dT%H:%M:%S")
@@ -269,6 +282,16 @@ class Gen:
             upto = self.rnd.randint(1, 6)
             hist = [{"stage": s, "date": min(req + timedelta(days=i), TODAY).isoformat()} for i, s in enumerate(stages[:upto + 1])]
             stage = hist[-1]["stage"]
+            is_exchange = status == "교환진행"
+            detail = RETURN_STAGE_DETAIL[stage]
+            if is_exchange:
+                detail = detail.replace("반품", "교환")
+            # 환불까지 끝난 반품은 더 이상 진행 중이 아니므로 주문 상태를 종결 상태로 되돌린다.
+            # 기존 상태 값 집합(결제완료·제작중·배송중·배송완료·반품진행·교환진행)만으로 표현 가능해
+            # 새 상태 값을 추가하지 않는다 — 새 값을 추가하면 orders 의 상태가 '배송완료 아님' 을
+            # 종결로 취급하는 test_adminrepo.py::test_summary_counts 의 exhaustive 가정
+            # ("select count(*) from orders where status not in ('배송완료')") 이 깨진다.
+            final_status = "배송완료" if stage == "환불완료" else status
             inspected = stage in ("승인", "환불완료")
             fault = self.rnd.choice(["판매자", "고객"]) if inspected else None
             reason = self.rnd.choice(RETURN_REASONS)
@@ -281,7 +304,8 @@ class Gen:
                  "expected_completion": min(req + timedelta(days=7), TODAY + timedelta(days=7)).isoformat(), "stage_history": hist,
                  "note": None if inspected else "검품 미완료로 귀책 미확정"}
             self.insert_return(r)
-            self.con.execute("update orders set return_id=? where order_id=?", (rid, oid))
+            self.con.execute("update orders set return_id=?, status=?, status_detail=? where order_id=?",
+                             (rid, final_status, detail, oid))
 
     def synth_restock(self, total=8):
         sold = [p for p in self.products.values() if p.get("soldout") and p["product_id"] not in {r["product_id"] for r in self.seed["restock"]}]
