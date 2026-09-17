@@ -4,9 +4,22 @@ __pycache__/
 *.pyc
 .env
 .env.local
+.env.*.local
+.env.production
+.env.development
 logs/
 .pytest_cache/
 .bkit/
 domains/*/*.db
 domains/*/*.db-*
 domains/*/*.db.tmp*
+
+# 시크릿 파일
+.claude/settings.local.json
+.claude/.credentials.json
+*.pem
+*.key
+id_rsa*
+*.p12
+*.pfx
+.mcp.json
