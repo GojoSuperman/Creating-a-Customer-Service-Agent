@@ -133,3 +133,53 @@ def test_customers_search_escapes_like_wildcards(admin):
     # LIKE 특수문자 %, _ 가 와일드카드로 해석되면 안 된다 (실측: 이스케이프 없으면 q='%' 가 전체건수 반환)
     assert admin.customers(q="%")[1] == 0
     assert admin.customers(q="_")[1] == 0
+
+
+def test_order_detail_joins_items_events_return_customer(admin):
+    o = admin.order_detail("O-1006")
+    assert o["order_id"] == "O-1006"
+    assert o["items"] and o["items"][0]["qty"] >= 1
+    assert isinstance(o["events"], list)
+    assert o["return_"]["return_id"] == "R-2001"
+    assert o["return_"]["stage_history"][0]["stage"] == "접수"
+    assert o["customer"]["customer_id"] == o["customer_id"]
+    assert admin.order_detail("O-9999") is None
+
+
+def test_return_detail_has_history_and_order(admin):
+    r = admin.return_detail("R-2001")
+    assert r["order_id"] == "O-1006"
+    assert [h["stage"] for h in r["stage_history"]][:2] == ["접수", "수거대기"]
+    assert r["order"]["order_id"] == "O-1006"
+    assert admin.return_detail("R-9999") is None
+
+
+def test_call_detail_parses_turns(admin):
+    rows, _ = admin.calls()
+    c = admin.call_detail(rows[0]["call_id"])
+    assert c["call_id"] == rows[0]["call_id"]
+    assert isinstance(c["turns"], list)
+    assert "customer" in c  # 비회원 통화면 None
+    assert admin.call_detail("없는통화") is None
+
+
+def test_customer_detail_has_orders_and_calls(admin):
+    rows, _ = admin.customers()
+    cid = next(c["customer_id"] for c in rows
+               if admin.con.execute("select count(*) from orders where customer_id=?", (c["customer_id"],)).fetchone()[0] > 0)
+    d = admin.customer_detail(cid)
+    assert d["customer_id"] == cid
+    assert d["orders"] and all(o["customer_id"] == cid for o in d["orders"])
+    assert isinstance(d["calls"], list)
+    assert admin.customer_detail("C-9999") is None
+
+
+def test_summary_counts(admin):
+    s = admin.summary("2026-09-17T10:00:00")
+    assert s["calls_today"] == admin.con.execute(
+        "select count(*) from call_logs where substr(started_at,1,10)=?", ("2026-09-17",)).fetchone()[0]
+    assert s["orders_in_progress"] == admin.con.execute(
+        "select count(*) from orders where status not in ('배송완료')").fetchone()[0]
+    assert {r["stage"] for r in s["returns_by_stage"]} == {
+        r[0] for r in admin.con.execute("select distinct stage from returns").fetchall()}
+    assert len(s["recent_calls"]) <= 5
