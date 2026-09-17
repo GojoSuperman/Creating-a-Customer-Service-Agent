@@ -97,9 +97,8 @@ def shop_router(repo, domain) -> APIRouter:
         response.set_cookie(CART_COOKIE, shopcookie.dump_cart(cart), httponly=True, samesite="lax",
                             path=COOKIE_PATH)
 
-    def render(request, name, customer, cart_count=None, **ctx):
-        if cart_count is None:
-            cart_count = len(cart_of(request))
+    def render(request, name, customer, **ctx):
+        cart_count = len(cart_of(request))
         return templates.TemplateResponse(request, f"shop/{name}",
                                           {"customer": customer, "cart_count": cart_count, **ctx})
 
@@ -112,11 +111,8 @@ def shop_router(repo, domain) -> APIRouter:
         return RedirectResponse(path, status_code=303)
 
     def sample_customers():
-        """데모용 예시 고객 3명 (이름·전화). Repo 에 전용 메서드가 없어 직접 조회한다."""
-        shop = get_shop()
-        with shop._lock:
-            rows = shop.con.execute("select name, phone from customers order by customer_id limit 3").fetchall()
-        return [{"name": r[0], "phone": r[1]} for r in rows]
+        """데모용 예시 고객 3명 (이름·전화)."""
+        return get_shop().sample_customers(limit=3)
 
     # ── 상품 ────────────────────────────────────────────
     @router.get("", response_class=HTMLResponse)
@@ -282,6 +278,6 @@ def shop_router(repo, domain) -> APIRouter:
         o = get_shop().order_of(customer["customer_id"], order_id)
         if not o:
             return not_found(request, f"주문 {order_id}", customer)
-        return render(request, "order_detail.html", customer, o=o, just_ordered=bool(new))
+        return render(request, "order_detail.html", customer, o=o, just_ordered=new == "1")
 
     return router

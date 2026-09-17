@@ -256,6 +256,22 @@ def test_order_detail_banner_only_shows_right_after_ordering(client, modumall_di
         assert "주문이 접수되었습니다" not in later.text
 
 
+def test_order_detail_banner_does_not_show_for_new_equals_zero(client, modumall_dir_module):
+    """?new=0 처럼 참으로 흔히 쓰는 "거짓" 문자열도 `bool(new)` 로는 True 였다(리뷰어 실측).
+    new 값이 정확히 "1" 일 때만 접수 안내가 떠야 한다."""
+    import sqlite3
+    con = sqlite3.connect(str(load_domain(modumall_dir_module).db_path))
+    with TestClient(client.app) as c:
+        _login(c, con)
+        c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": "M"}, follow_redirects=False)
+        done = c.post("/shop/checkout", follow_redirects=False)
+        order_id = done.headers["location"].split("?", 1)[0].rsplit("/", 1)[1]
+
+        r = c.get(f"/shop/orders/{order_id}?new=0")
+        assert r.status_code == 200
+        assert "주문이 접수되었습니다" not in r.text
+
+
 def test_order_detail_of_other_customer_is_404(client, modumall_dir_module):
     import sqlite3
     con = sqlite3.connect(str(load_domain(modumall_dir_module).db_path))
@@ -296,6 +312,18 @@ def test_cart_with_missing_product_can_be_emptied(client):
 
         c.post("/shop/cart/update", data={"product_id": "P-NOPE", "option": "", "qty": 0}, follow_redirects=False)
         assert "장바구니가 비어" in c.get("/shop/cart").text   # 삭제하면 정말로 빠져나올 수 있다
+
+
+def test_cart_shows_soldout_badge_before_checkout(client, modumall_dir_module):
+    """품절 상품을 담으면 장바구니 화면에서부터 품절 배지가 보여야 한다 — 결제 버튼을 눌러
+    거부당해야만 알 수 있으면 안 된다(리뷰어 실측)."""
+    import sqlite3
+    con = sqlite3.connect(str(load_domain(modumall_dir_module).db_path))
+    soldout_id = con.execute("select product_id from products where soldout=1 limit 1").fetchone()[0]
+    with TestClient(client.app) as c:
+        c.post("/shop/cart/add", data={"product_id": soldout_id, "qty": 1, "option": ""}, follow_redirects=False)
+        cart = c.get("/shop/cart")
+        assert '<span class="badge">품절</span>' in cart.text
 
 
 def test_checkout_blocked_message_is_deduplicated(client, modumall_dir_module):

@@ -17,6 +17,10 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 데이터는 첫 실행 시 자동 생성됩니다(`domains/modumall/modumall.db`). 다시 만들려면
 `python -m server.db.generate --force`.
 
+**운영 주의**
+- `pytest` 를 돌리면 `tests/test_generate.py` 가 `domains/modumall/modumall.db` 를 재생성한다(파일 삭제 후 재작성). 데모 서버가 떠 있는 상태에서 테스트를 돌리면 그 서버는 삭제된 파일을 붙든 채 계속 돌아가 화면과 DB 가 어긋나므로(예: 서버가 발급한 주문이 DB 에 없음), 테스트 후에는 서버를 재시작해야 한다.
+- `/shop` 은 비밀번호 없이 전화번호만으로 로그인한다. 번호를 아는 사람은 그 고객의 주문·주소를 전부 볼 수 있으므로, 서버는 `127.0.0.1` 바인딩(기본값)을 유지하고 외부에 노출하지 말 것.
+
 ## 구조
 
 | 경로 | 역할 |

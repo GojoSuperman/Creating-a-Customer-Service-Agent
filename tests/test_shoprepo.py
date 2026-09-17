@@ -16,6 +16,13 @@ def shop(modumall_dir_module):
     return ShopRepo(Repo(domain.db_path), domain)
 
 
+def test_sample_customers_returns_name_and_phone(shop):
+    rows = shop.sample_customers(limit=3)
+    assert len(rows) == 3
+    expected = shop.con.execute("select name, phone from customers order by customer_id limit 3").fetchall()
+    assert [(r["name"], r["phone"]) for r in rows] == [(n, p) for n, p in expected]
+
+
 def test_products_list_and_filter(shop):
     rows, total = shop.products()
     assert len(rows) == PAGE_SIZE

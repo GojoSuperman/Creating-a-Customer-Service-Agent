@@ -65,6 +65,12 @@ class ShopRepo:
         return [{"key": k, "label": v["label"], "free_shipping_threshold": v["free_shipping_threshold"]}
                 for k, v in sorted(cats.items())]
 
+    def sample_customers(self, limit=3):
+        """로그인 화면에 보여줄 예시 고객(이름·전화). 쓰기 없는 조회지만 raw SQL 은
+        라우터가 아니라 이 저장소 안에만 두기 위해 여기에 둔다."""
+        rows = self._all("select name, phone from customers order by customer_id limit ?", (int(limit),))
+        return [{"name": r["name"], "phone": r["phone"]} for r in rows]
+
     # ── 금액 ────────────────────────────────────────────
     def _shipping(self, subtotal, categories):
         """무료배송 대상이 아닌 카테고리(임계값 NULL, 예: 화장품)가 섞이면 무조건 유료.

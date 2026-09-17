@@ -40,7 +40,7 @@
   <tbody>
   {% for line in quote.lines %}
     <tr>
-      <td>{{ line.name }}</td>
+      <td>{{ line.name }}{% if line.soldout %} <span class="badge">품절</span>{% endif %}</td>
       <td>{{ line.option or "-" }}</td>
       <td class="num">{{ line.price | won }}</td>
       <td>
