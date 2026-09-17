@@ -1,8 +1,13 @@
+import sqlite3
+from pathlib import Path
+
 import pytest
 
 from server.domain import load_domain
 from server.repo import Repo
 from server.shoprepo import PAGE_SIZE, ShopRepo
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture(scope="module")
@@ -126,3 +131,160 @@ def test_shipping_free_exactly_at_threshold(shop):
 
     fee_below, free_below = shop._shipping(threshold - 1, ["UNDERWEAR"])
     assert free_below is False and fee_below == shop.base_fee
+
+
+@pytest.fixture
+def memory_shop(modumall_dir_module):
+    """쓰기 테스트 전용. 공유 DB 를 건드리지 않는다."""
+    from server.shoprepo import ShopRepo
+
+    con = sqlite3.connect(":memory:", check_same_thread=False)
+    con.row_factory = sqlite3.Row
+    con.executescript((ROOT / "server" / "db" / "schema.sql").read_text(encoding="utf-8"))
+    con.executescript("""
+        insert into categories (key,label,free_shipping_threshold,free_shipping_note,return_window_days,return_window_basis,requires_unopened)
+          values ('UNDERWEAR','속옷',30000,null,7,'수령일',0), ('COSMETICS','화장품',null,'무료배송 대상이 아닙니다',7,'수령일',1);
+        insert into customers values ('C-0001','김테스트','010-1111-2222','수도권','서울시 강남구 1','2024-01-01');
+        insert into products (product_id,name,category,price,stock,is_set,soldout,has_quality_cert,made_to_order)
+          values ('P1','속옷 세트','UNDERWEAR',20000,5,0,0,0,0),
+                 ('P2','품절 상품','UNDERWEAR',10000,0,0,1,0,0),
+                 ('P3','재고없는 상품','UNDERWEAR',10000,null,0,0,0,0),
+                 ('P4','클렌징 오일','COSMETICS',18000,3,0,0,0,0);
+        insert into orders (order_id,customer_id,ordered_at,status,order_amount,shipping_fee)
+          values ('O-1005','C-0001','2026-09-01T10:00:00','배송완료',10000,2500);
+    """)
+    con.commit()
+
+    class FakeRepoDomain:
+        fixed_values = {"base_shipping_fee": 2500}
+
+    from server.repo import Repo
+    repo = Repo.__new__(Repo)          # 파일 경로 없이 커넥션만 주입
+    repo.con = con
+    import threading
+    repo._lock = threading.RLock()
+    return ShopRepo(repo, FakeRepoDomain())
+
+
+def test_create_order_writes_order_and_items(memory_shop):
+    oid = memory_shop.create_order("C-0001", [{"product_id": "P1", "option": "M", "qty": 2}],
+                                   now="2026-09-17T12:00:00")
+    assert oid == "O-1006"                                   # 기존 최대 O-1005 + 1
+    row = memory_shop.con.execute("select * from orders where order_id=?", (oid,)).fetchone()
+    assert row["status"] == "결제완료" and row["customer_id"] == "C-0001"
+    assert row["ordered_at"] == "2026-09-17T12:00:00"
+    assert row["order_amount"] == 40000 and row["shipping_fee"] == 0 and row["free_shipping_applied"] == 1
+    assert row["address_region"] == "수도권"
+    items = memory_shop.con.execute("select * from order_items where order_id=?", (oid,)).fetchall()
+    assert len(items) == 1 and items[0]["name"] == "속옷 세트" and items[0]["option"] == "M"
+    assert items[0]["qty"] == 2 and items[0]["price"] == 20000
+
+
+def test_create_order_decrements_stock_but_not_null_stock(memory_shop):
+    memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 2},
+                                        {"product_id": "P3", "option": None, "qty": 1}])
+    assert memory_shop.con.execute("select stock from products where product_id='P1'").fetchone()[0] == 3
+    assert memory_shop.con.execute("select stock from products where product_id='P3'").fetchone()[0] is None
+
+
+def test_create_order_rejects_soldout_and_leaves_no_trace(memory_shop):
+    from server.shoprepo import OrderError
+
+    before_orders = memory_shop.con.execute("select count(*) from orders").fetchone()[0]
+    with pytest.raises(OrderError) as e:
+        memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 1},
+                                            {"product_id": "P2", "option": None, "qty": 1}])
+    assert any("품절" in m for m in e.value.blocked)
+    assert memory_shop.con.execute("select count(*) from orders").fetchone()[0] == before_orders
+    assert memory_shop.con.execute("select count(*) from order_items").fetchone()[0] == 0
+    assert memory_shop.con.execute("select stock from products where product_id='P1'").fetchone()[0] == 5
+
+
+def test_create_order_rejects_insufficient_stock(memory_shop):
+    from server.shoprepo import OrderError
+
+    with pytest.raises(OrderError) as e:
+        memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 6}])
+    assert any("재고" in m for m in e.value.blocked)
+    assert memory_shop.con.execute("select count(*) from order_items").fetchone()[0] == 0
+
+
+def test_create_order_rejects_empty_cart(memory_shop):
+    from server.shoprepo import OrderError
+
+    with pytest.raises(OrderError):
+        memory_shop.create_order("C-0001", [])
+
+
+def test_create_order_cosmetics_pays_shipping(memory_shop):
+    oid = memory_shop.create_order("C-0001", [{"product_id": "P4", "option": None, "qty": 3}])
+    row = memory_shop.con.execute("select * from orders where order_id=?", (oid,)).fetchone()
+    assert row["order_amount"] == 54000 and row["shipping_fee"] == 2500 and row["free_shipping_applied"] == 0
+
+
+def test_orders_of_and_order_of_scope_to_customer(memory_shop):
+    memory_shop.con.execute("insert into customers values ('C-0002','남','010-3333-4444','수도권','서울 2','2024-02-02')")
+    oid = memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 1}])
+    mine = memory_shop.orders_of("C-0001")
+    assert [o["order_id"] for o in mine][0] == oid                  # 최신순
+    assert all(o["customer_id"] == "C-0001" for o in mine)
+    assert memory_shop.order_of("C-0001", oid)["items"][0]["product_id"] == "P1"
+    assert memory_shop.order_of("C-0002", oid) is None              # 남의 주문은 안 보인다
+    assert memory_shop.order_of("C-0001", "O-9999") is None
+
+
+def test_create_order_rolls_back_on_mid_transaction_failure(memory_shop):
+    """order insert 는 이미 성공한 뒤 order_items insert 가 실패하는 상황을 흉내 내어,
+    rollback 이 실제로 orders 행까지 되돌리는지 확인한다(스텁 제거 시에만 잡히는 테스트)."""
+    real_con = memory_shop.con
+
+    class FlakyConnection:
+        def __init__(self, real):
+            self._real = real
+            self.calls = 0
+
+        def execute(self, sql, params=()):
+            if sql.startswith("insert into order_items"):
+                self.calls += 1
+                if self.calls == 1:
+                    raise sqlite3.OperationalError("주입된 실패")
+            return self._real.execute(sql, params)
+
+        def commit(self):
+            self._real.commit()
+
+        def rollback(self):
+            self._real.rollback()
+
+        @property
+        def in_transaction(self):
+            return self._real.in_transaction
+
+    memory_shop.con = FlakyConnection(real_con)
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 2}])
+    finally:
+        memory_shop.con = real_con  # 검증은 진짜 커넥션으로
+
+    assert memory_shop.con.execute("select count(*) from orders").fetchone()[0] == 1  # 기존 O-1005 뿐
+    assert memory_shop.con.execute("select count(*) from order_items").fetchone()[0] == 0
+    assert memory_shop.con.execute("select stock from products where product_id='P1'").fetchone()[0] == 5
+
+
+def test_create_order_rejects_negative_and_non_integer_qty(memory_shop):
+    """Task 2 리뷰에서 발견된 quote() 의 음수 수량 취약점을 주문 경로에서 막는다."""
+    from server.shoprepo import OrderError
+
+    before_orders = memory_shop.con.execute("select count(*) from orders").fetchone()[0]
+
+    with pytest.raises(OrderError):
+        memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": -1}])
+    with pytest.raises(OrderError):
+        memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": 0}])
+    with pytest.raises(OrderError):
+        memory_shop.create_order("C-0001", [{"product_id": "P1", "option": None, "qty": "abc"}])
+
+    # 거부된 주문은 흔적을 남기지 않는다.
+    assert memory_shop.con.execute("select count(*) from orders").fetchone()[0] == before_orders
+    assert memory_shop.con.execute("select stock from products where product_id='P1'").fetchone()[0] == 5
