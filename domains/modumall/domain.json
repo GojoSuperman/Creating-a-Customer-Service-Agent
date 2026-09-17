@@ -1,4 +1,5 @@
 {
+  "_note_manual_section_9": "policy.md 의 9장(자주 발생하는 실수)은 어떤 route의 sections에도 always_sections에도 매핑돼 있지 않아 현재 미사용이다(프롬프트에 들어가지 않음). 의도적 설계인지 누락인지는 기록에 남아 있지 않다.",
   "name": "모두몰",
   "greeting": "안녕하세요, 모두몰 고객센터입니다. 무엇을 도와드릴까요?",
   "greeting_known": "{name} 고객님, 안녕하세요. 모두몰 고객센터입니다. 무엇을 도와드릴까요?",

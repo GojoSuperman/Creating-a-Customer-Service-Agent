@@ -3,26 +3,67 @@
 브라우저에서 전화처럼 대화하는 쇼핑몰 상담 에이전트. 문의를 **분류**하고, 목 DB를 **조회**하고,
 매뉴얼에 **근거**해 답하며, **가드레일**이 출처 없는 숫자를 막는다.
 
+## 라이브 데모
+
+**https://creating-a-customer-service-agent.onrender.com**
+
+- `/` — 통화 화면(전화처럼 대화)
+- `/shop` — 쇼핑몰(로그인 후 주문 조회·구매)
+- `/admin` — 어드민 콘솔(HTTP Basic 인증으로 보호됨)
+
+무료 등급(Render)이라 **트래픽이 없으면 인스턴스가 잠들고, 첫 접속 시 30~40초 정도 걸려 깨어난다**
+(콜드 스타트). "안 열린다"가 아니라 깨어나는 중일 가능성이 높으니 잠시 기다렸다가 새로고침할 것.
+
+실제로 통화를 걸어 보려면(LLM 분류·답변을 태우려면) 통화 화면 제목 줄의 ⚙ 설정 버튼을 눌러
+**본인의 OpenAI 키를 직접 입력**해야 한다(BYOK). 이 키는 브라우저 `localStorage`에만 저장되고
+요청마다 헤더로만 전달되며, 서버·DB·로그 어디에도 남지 않는다(자세한 동작은 아래 "배포(Render,
+무료 등급)" 절의 "방문자 키(BYOK)" 참고).
+
 ## 시작하기
 
 ```bash
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements.txt -r requirements-dev.txt
-cp .env.example .env            # OPENAI_API_KEY 채우기
+cp .env.example .env            # 키 없이도 서버는 뜬다. 실제 통화를 태우려면 OPENAI_API_KEY 를 채운다.
 .venv/bin/python -m server      # http://127.0.0.1:8000  (크롬 권장, 포트 변경은 PORT=8010)
+```
+
+`uv`가 없다면 [공식 설치 스크립트](https://docs.astral.sh/uv/getting-started/installation/)
+(`curl -LsSf https://astral.sh/uv/install.sh | sh`)를 쓰거나, 아래처럼 표준 `venv` + `pip`으로도
+동일하게 설치할 수 있다(직접 실행해 확인함):
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 ```
 
 `requirements.txt`는 서버 실행에 필요한 런타임 의존성만 담는다. `requirements-dev.txt`는 그 위에
 평가 스크립트(`eval/`)·테스트가 쓰는 `pandas`·`scikit-learn`·`pytest`·`httpx`를 더한다. 서버만
 띄울 거면 `-r requirements.txt`만 설치해도 된다.
 
-`.env`에 실제 `OPENAI_API_KEY`를 입력해야 `python -m server` 실행과 LLM 평가 스크립트가 작동합니다.
+**`OPENAI_API_KEY` 없이도 확인할 수 있는 것과, 있어야만 되는 것을 구분한다.**
+
+| 키 없이 됨 | 키가 필요함 |
+|---|---|
+| 서버 기동, 통화 화면·쇼핑몰·어드민 열람 | 실제 통화(LLM 분류·답변 생성) |
+| `pytest` 499건 전부 통과 | LLM 기반 평가(`eval_answer`, `--judge`, `eval_context` 등) |
+| 규칙 기반 라우터 평가(`eval_router --rule`, `eval_hard --rule`) | |
+
+즉 `.env`에 `OPENAI_API_KEY`를 채우지 않아도 서버는 정상 기동하고, 화면·쇼핑몰·어드민을 전부
+둘러볼 수 있으며 테스트도 전부 통과한다. 실제로 LLM 이 분류·답변하는 통화를 걸려면(또는 방문자가
+BYOK 로 키를 넣지 않는 로컬 개발에서) 키가 필요하다. 서버 코드상 키가 없을 때는 `/api/call/turn`·
+`/api/tts` 가 401 을 돌려줄 뿐, 서버 자체가 죽지는 않는다(`server/app.py`의 `turn()` 참고).
 
 데이터는 첫 실행 시 자동 생성됩니다(`domains/modumall/modumall.db`). 다시 만들려면
 `python -m server.db.generate --force`.
 
+**`pytest` 는 DB를 재생성한다 — 서버를 띄운 채 돌리면 화면과 DB가 어긋난다**
+`pytest` 를 돌리면 `tests/test_generate.py` 가 `domains/modumall/modumall.db` 를 재생성한다(파일
+삭제 후 재작성). 데모 서버가 떠 있는 상태에서 테스트를 돌리면 그 서버는 삭제된 파일을 붙든 채 계속
+돌아가 화면과 DB 가 어긋나므로(예: 서버가 발급한 주문이 DB 에 없음), 테스트 후에는 서버를 재시작해야
+한다.
+
 **운영 주의**
-- `pytest` 를 돌리면 `tests/test_generate.py` 가 `domains/modumall/modumall.db` 를 재생성한다(파일 삭제 후 재작성). 데모 서버가 떠 있는 상태에서 테스트를 돌리면 그 서버는 삭제된 파일을 붙든 채 계속 돌아가 화면과 DB 가 어긋나므로(예: 서버가 발급한 주문이 DB 에 없음), 테스트 후에는 서버를 재시작해야 한다.
 - `/shop` 은 비밀번호 없이 전화번호만으로 로그인한다. 번호를 아는 사람은 그 고객의 주문·주소를 전부 볼 수 있다. 로컬 개발 시 서버는 `127.0.0.1` 바인딩(기본값)을 유지하고 외부에 노출하지 말 것. (레일웨이 배포는 통화 화면·쇼핑몰을 의도적으로 공개하는 결정이며 아래 "배포(Railway)" 절 참고.)
 
 ## 배포(Railway)
@@ -108,6 +149,79 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 | `domains/<이름>/` | 도메인 데이터 |
 | `eval/` | 평가 스크립트 |
 
+## 카테고리 설계와 근거 문서 매핑
+
+분류 라우트는 5개다(`ORDER_PLACE`·`PRODUCT_INFO`·`SHIPPING`·`RETURN_REFUND` + 미분류 카테고리
+`OTHER`). 각 라우트는 `domains/modumall/domain.json`의 `routes[*].sections`로 매뉴얼
+(`domains/modumall/policy.md`)의 특정 장(章)에 묶여 있고, 모든 라우트에 공통으로 들어가는 장은
+`always_sections`로 따로 선언한다.
+
+| 라우트 | 정의 | 매뉴얼 근거 장 |
+|---|---|---|
+| `ORDER_PLACE` | 구매·주문 접수, 구매 가능 여부, 수량·옵션 변경 요청 | 2. 주문·구매 문의 |
+| `PRODUCT_INFO` | 상품 구성·품질·소재·사이즈·재고 문의 | 3. 상품 문의 |
+| `SHIPPING` | 배송비, 배송 기간, 배송 조회, 무료배송 조건 | 4. 배송 문의 |
+| `RETURN_REFUND` | 교환·반품·환불 신청 및 처리 현황 | 5. 교환·반품 접수, 6. 비용과 처리 |
+| `OTHER` | 위 네 유형에 해당하지 않는 응대 범위 밖 문의 | (전용 장 없음 — 미분류 카테고리) |
+
+다섯 라우트 모두에 공통으로 들어가는 장(`always_sections`): 이 매뉴얼을 쓰는 방법, 0. 상담 기본
+원칙, 1. 문의 유형 분류, 7. 응대 범위와 이관, 8. 응대 태도와 문장.
+
+분류 기준 자체는 매뉴얼 `### 1.1 분류 판단 기준`·`### 1.2 분류 우선순위`·`### 7.1 응대 범위 밖`에
+글로 적혀 있고, 이 세 절의 발췌가 `domain.json`의 `routing_rules` 문자열로 옮겨져 라우터 프롬프트에
+그대로 주입된다(`server/prompts.py:19`의 `build_route_guide`가 `{domain.routing_rules}`를 끼워
+넣는다). 즉 매뉴얼 문서와 프롬프트가 별개로 관리되는 게 아니라, `routing_rules`가 매뉴얼 해당 절의
+번역/발췌본이다.
+
+미분류 카테고리 `OTHER`는 전용 장이 없고(`sections: []`), 여기로 분류된 문의는 `server/pipeline.py`의
+`_node_escalate`가 처리한다 — `action == "OUT_OF_SCOPE"`면 `domain.out_of_scope_message`로 답하고
+통화를 끊고, 그 외(`ESCALATE`, 확신도가 낮아 되묻지 않고 넘겨야 하는 경우)는 `domain.escalate_message`
+로 상담원 이관을 안내한다.
+
+**카테고리에 따라 서로 다른 근거만 프롬프트에 들어가게 구현한 부분**은 `server/context.py`의
+`build_context(domain, route)`다. 매뉴얼 전문을 `## ` 헤딩 단위로 잘라(`split_sections`) 라우트별
+`always_sections + routes[route].sections`만 이어붙인다. 전문을 다 넣지 않는 이유는 파일 상단 docstring에
+있다 — 입력이 길어져 비용·지연이 늘고, 관련 없는 정책(예: 배송 문의에 반품 배송비가 섞여 들어가는 것)이
+오답을 유도하기 때문이다.
+
+이 매핑이 실제로 라우트마다 다른 컨텍스트를 만드는지는 LLM 호출 없이(매뉴얼 텍스트를 자르고 이어붙이는
+것뿐이라 도구 호출이 필요 없다) 직접 실행해 확인할 수 있다. 아래는 그렇게 직접 실행해 얻은 출력이다
+(`len`은 `build_context()`가 반환한 프롬프트 문자열의 글자 수):
+
+```
+ORDER_PLACE    len=6164  [쓰는 방법, 0, 1, 7, 8, 2. 주문·구매 문의]
+PRODUCT_INFO   len=5674  [쓰는 방법, 0, 1, 7, 8, 3. 상품 문의]
+SHIPPING       len=6559  [쓰는 방법, 0, 1, 7, 8, 4. 배송 문의]
+RETURN_REFUND  len=7907  [쓰는 방법, 0, 1, 7, 8, 5. 교환·반품 접수, 6. 비용과 처리]
+OTHER          len=4766  [쓰는 방법, 0, 1, 7, 8]                (전용 장 없음)
+SHIPPING 에 6.1 반품배송비 포함? False   /   RETURN_REFUND 에 4.1 배송비 포함? False
+```
+
+재현 방법(저장소 루트에서, 키 불필요):
+
+```bash
+.venv/bin/python - <<'PY'
+from pathlib import Path
+from server.domain import load_domain
+from server.context import build_context
+
+domain = load_domain(Path("domains/modumall"))
+for route in domain.routes:
+    ctx = build_context(domain, route)
+    keys = domain.always_sections + domain.routes[route].sections
+    print(f"{route:<14} len={len(ctx):<5} {keys}")
+
+shipping_ctx = build_context(domain, "SHIPPING")
+return_ctx = build_context(domain, "RETURN_REFUND")
+print("SHIPPING 에 6.1 반품배송비 포함?", "### 6.1 반품 배송비" in shipping_ctx)
+print("RETURN_REFUND 에 4.1 배송비 포함?", "### 4.1 배송비" in return_ctx)
+PY
+```
+
+매뉴얼 9장(`### 9. 자주 발생하는 실수`)은 어떤 라우트의 `sections`에도, `always_sections`에도 들어
+있지 않다 — 즉 현재는 어떤 프롬프트에도 주입되지 않는다. 의도적 설계인지 누락인지는 문서에 남아있지
+않아 확인이 안 된다(`domains/modumall/domain.json`에 사실 그대로 주석을 남겨 두었다).
+
 ## 도메인 바꾸기
 
 `domains/<새이름>/`에 `domain.json`, `policy.md`, `mockdb.json`, `eval/`을 같은 스키마로 만들고
@@ -129,6 +243,33 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 
 한 군데 고치고 → 평가 → 숫자가 어디로 움직였나 본다. 평가셋(`split == "eval"`)은 절대 프롬프트에 넣지 않는다.
 
+**대표 지표 (2026-09-17 최종 측정, `docs/측정기록/2026-09-17 3차 강화 측정.md`)**
+
+| 지표 | 값 |
+|---|---|
+| 라우팅 정확도 | 0.933 (n=120) |
+| 라우팅 macro F1 | 0.937 (n=120) |
+| 확신도 보정 ECE | 0.046 (0에 가까울수록 확신도를 믿을 수 있음) |
+
+라우팅은 정확도·macro F1·혼동행렬(`eval/eval_router.py`가 출력)로 측정한다. 답변 품질은 표 아래 기록처럼
+여러 차례 바뀌었다 — 규칙 채점기 통과율이 최고치 50.0%(16/32), judge 를 더한 통과율 최고치는
+62.5%(20/32, Task 4 시점)였다. 이후 진행 상태 정합성 작업(Task 5, 아래 표 행 5)에서 judge 포함 통과율이
+53.1~56.2%로 낮아졌다. 이 수치는 표본이 **32건으로 작아** 1건 차이가 약 3.1%p를 움직이므로, 등락을
+그대로 "성능이 나빠졌다/좋아졌다"로 읽기보다는 표본 크기의 한계를 감안해야 한다. 실패 사례를 하나하나
+읽고 원인을 분류·기록한 문서는 `docs/측정기록/2026-09-17 진행상태 정합성 측정.md`에 있다 — 하락분을
+A/B 재측정으로 좁혀 "프롬프트 규칙 5·6 때문이 아니라 `get_order_status` 도구가 모든 호출에
+`active_process`/`events_note` 필드를 무조건 붙인 것(Task 2)이 유력한 원인"이라고 사례(C-016) 기반으로
+판정했고, 설명되지 않는 실패(C-013·C-021)는 judge 채점 변동성(FLAP)으로 분류해 뭉뚱그리지 않았다.
+
+**채점 기준 자체의 타당성도 확인해 두었다.**
+- 규칙 채점기 자기검증(`eval/scoring.py`의 `self_check`): 모범 답안(reference)을 그대로 채점기에 넣어
+  전부 통과하는지 본다. 하나라도 실패하면 채점기가 틀린 것이라는 뜻이다.
+- judge 자기검증(`eval/judge.py:64-72`의 `judge_self_check`): 모범 답안을 답변으로, must 전부를
+  누락 목록으로 넣어 judge 가 전부 통과시키는지 본다. 하나라도 실패하면 judge 프롬프트가 틀린 것이고,
+  `eval_answer --judge` 실행 자체가 이 자기검증 실패 시 평가를 중단한다.
+- 확신도 보정표·ECE(`eval/calibration.py`): 라우터가 말한 확신도와 실제 정확도가 구간별로 얼마나
+  어긋나는지 계산해, "확신도가 높다고 해서 실제로 맞을 확률이 높은가"를 별도로 검증한다.
+
 | # | 바꾼 것 | 라우팅 macro F1 | 답변 통과율 | 회귀 통과 | 메모 |
 |---|---|---|---|---|---|
 | 0 | 기준선 (규칙 라우터) | 0.677 | – | – | 정확도 0.583 |
@@ -136,7 +277,23 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 | 2 | 검색 동점 버그 수정 · 채점기 만 단위 정규화 · 도구 상한 4 · 주문번호 우선 조회 | 0.945 | 50.0% (16/32, runs=3, FLAP 2) | 6/6 | 남은 실패: 되물어야 할 때 답변 3건, must 문자열 의미 불일치 6건(품절/불가/925), 도구 미호출 6건 |
 | 3 | A단계: SQLite 데이터(상품 180·주문 480) + 발신번호 고객 식별 + 마무리 인사 ASK 오판 수정 | 0.945 | (재측정 예정) | 6/6 | eval_context 40건: 자동화율 비회원 0.350 → 식별 고객 0.450, 되묻기율 0.525 → 0.400, 조회율 0.571 → 0.778 |
 | 4 | 3차 강화: judge 채점기 · 필수 도구 표(부정 결과 → revert) · 확신도 마진 게이트(CONF_MARGIN=0.3) · followup 라우트 이어받기(FOLLOWUP_INHERIT, 기본 꺼짐) · 이관 도구 매핑 · 동의어 보강 | 0.937 | 규칙 50.0% / judge 포함 62.5% (20/32, runs=3, FLAP 2) | 6/6 ×3 | judge 판정기 효과 = 바뀌지 않은 에이전트에 judge 만 붙여 규칙 14/32 → judge 포함 21/32(65.6%). 라우트별 필수 도구 표 + 자기 점검 프롬프트는 부정 결과(규칙 13/32·표만 12/32, 기준선 14/32)라 revert. 경계모호 위험 15 → 10건(Task 4 격자 측정 시점 8건)으로 목표 5건 미달, 격자에 5건 이하 조합이 없음. 멀티턴 문맥 주입은 순효과 −1건(턴2+ 정확도 기준선 0.957 → 0.913)이라 이어받기 기본 꺼짐. 측정 원본: docs/측정기록/2026-09-17 3차 강화 측정.md |
-| 5 | 진행 상태 정합성: 반품·교환 status_detail 을 반품 단계에서 파생 + 종결 상태(반품완료·교환완료) 신설 · get_order_status 에 active_process 필드 노출 · 답변 규칙 5·6(현재 상태 우선순위, 진행 중 사실 먼저 안내) · 가드레일 VIOLATION_STALE_STATE(SHIPPING·RETURN_REFUND 한정, 재시도해도 안 되면 통화 안 끊음) | 0.937 (동일) | 규칙 46.9% / judge 포함 **56.2%**(18/32, runs=3, FLAP 2) — 기준선 62.5% 대비 **하락 6.3%p, 원인 미결** | 6/6 (동일) | 실통화 재현 O-1072 4/4 성공(반품 사실 우선 안내). 하락 원인을 가르려 규칙 5·6 만 뺀 A/B 재측정을 시도했으나 OpenAI 429(TPM 한도)로 중도 종료 — 데이터·도구 변경 탓인지 규칙 탓인지 가리지 못함. eval_answer 는 Answerer 직접 호출이라 가드레일을 안 타므로 가드레일 효과는 이 수치에 안 잡힘(재현·회귀로만 확인). 측정 원본: docs/측정기록/2026-09-17 진행상태 정합성 측정.md — **A/B 재측정(규칙 5·6 제거) 완주**: judge 포함 **53.1%**(17/32, runs=3, FLAP 3) — 규칙 제거해도 회복 안 됨(오히려 −3.1%p, 표본 작아 오차 범위 가능) → **하락 원인은 규칙 5·6 이 아니라 Task 2(get_order_status active_process/events_note 필드)** 로 판정. 근거: C-016(정식 seed 주문, active_process=null)이 규칙 유무와 무관하게 두 실행 모두 동일 사유("7" 누락)로 실패, get_order_status 응답 비대화가 원인으로 추정. C-013·C-021 은 코드 변경으로 설명 안 돼 judge 채점 변동성(FLAP)으로 봄. |
+| 5 | 진행 상태 정합성: 반품·교환 status_detail 을 반품 단계에서 파생 + 종결 상태(반품완료·교환완료) 신설 · get_order_status 에 active_process 필드 노출 · 답변 규칙 5·6(현재 상태 우선순위, 진행 중 사실 먼저 안내) · 가드레일 VIOLATION_STALE_STATE(SHIPPING·RETURN_REFUND 한정, 재시도해도 안 되면 통화 안 끊음) | 0.937 (동일) | 규칙 46.9% / judge 포함 **56.2%**(18/32, runs=3, FLAP 2) — 기준선 62.5% 대비 **하락 6.3%p** | 6/6 (동일) | 실통화 재현 O-1072 4/4 성공(반품 사실 우선 안내). 하락 원인을 가르려 규칙 5·6 만 뺀 **A/B 재측정을 완주**: judge 포함 **53.1%**(17/32, runs=3, FLAP 3) — 규칙을 빼도 회복되지 않음(오히려 −3.1%p, 표본 작아 오차 범위 가능) → **하락 원인은 규칙 5·6 이 아니라 Task 2(get_order_status active_process/events_note 필드)** 로 판정. 근거: C-016(정식 seed 주문, active_process=null)이 규칙 유무와 무관하게 두 실행 모두 동일 사유("7" 누락)로 실패, get_order_status 응답 비대화가 원인으로 추정. C-013·C-021 은 코드 변경으로 설명 안 돼 judge 채점 변동성(FLAP)으로 봄. eval_answer 는 Answerer 직접 호출이라 가드레일을 안 타므로 가드레일 효과는 이 수치에 안 잡힘(재현·회귀로만 확인). 측정 원본: docs/측정기록/2026-09-17 진행상태 정합성 측정.md |
+
+## 고도화 내역
+
+기본 과제(문의 분류 + 근거 기반 답변)를 넘어 구현한 것들이다.
+
+| 항목 | 내용 |
+|---|---|
+| 가드레일 4종 + 재시도/이관 | `server/guardrail.py`가 답변을 4종으로 검사한다 — 출처 불명 수치(`VIOLATION_UNSOURCED`), 툴 미호출 단정(`VIOLATION_NO_TOOL`), 미확정값 확답(`VIOLATION_ASSERT_UNCONFIRMED`), 진행 중 상태 누락(`VIOLATION_STALE_STATE`, SHIPPING·RETURN_REFUND 한정). 위반 시 재시도하고, 그래도 안 되면 상담원 이관으로 뺀다. |
+| 음성 STT·TTS + 한국어 발음 정규화 | 음성 인식은 Web Speech API, 합성은 브라우저 음성이 기본이고 `TTS_MODEL` 설정 시 OpenAI TTS 로 전환(`server/tts.py`). 숫자·영문 발음을 한국어 전화 통화에 맞게 정규화하는 `server/pronounce.py`가 있다. |
+| 고객 마무리 발화 인식 | `server/pipeline.py`가 정규식 기반 결정적 규칙으로 고객의 마무리 신호를 판단해 SOFT(마무리 인사만 하고 통화 유지)와 HARD(통화 종료)를 구분한다. |
+| 실시간 품질 패널 | `web/statspanel.js`가 통화 중 확신도(저확신 임계값)와 행동 판정 두 축을 누적 집계해 화면에 보여준다. |
+| 어드민 콘솔 | `server/admin.py`/`server/adminrepo.py` + `web/dbpanel.js` 등이 `/admin/*`에 HTTP Basic 인증(fail-closed)으로 보호된 조회 화면을 제공한다. |
+| 쇼핑몰 | `server/shop.py`가 전화번호 로그인·상품 구매를 제공하고, 주문이 실제 DB에 기록되어 그 고객으로 바로 통화를 걸어(발신번호 식별) 이어서 상담받을 수 있다. |
+| BYOK 배포 | Render/Railway 배포에서 서버가 키를 들고 있지 않아도, 방문자가 자기 OpenAI 키를 넣어 통화할 수 있다(`server/llmkey.py`, `X-OpenAI-Key` 헤더). |
+| 시연 데이터 20명 사연 설계 | `/shop` 로그인 화면 예시 고객과 통화 드롭다운에 결정적 사연을 가진 고객 20명을 배치해 시연 시나리오를 재현 가능하게 했다(최근 커밋 `cb94e5a`). |
+| 테스트 499건 | `.venv/bin/pytest -q`로 키 없이 전부 통과 확인. |
 
 ## 수동 검증 체크리스트
 
