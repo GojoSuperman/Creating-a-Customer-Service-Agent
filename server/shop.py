@@ -17,6 +17,7 @@ SESSION_COOKIE = "shop_session"
 CART_COOKIE = "shop_cart"
 COOKIE_PATH = "/shop"
 SESSION_PURPOSE = "uid"
+MAX_FORM_BODY_BYTES = 64 * 1024  # 로그인 폼 등 urlencoded 본문 상한 — 익명이 두드릴 수 있는 엔드포인트라 메모리 낭비를 막는다
 
 
 def _won(n):
@@ -27,11 +28,31 @@ def _mmdd(iso):
     return f"{int(iso[5:7])}월 {int(iso[8:10])}일" if iso else "-"
 
 
+class FormTooLarge(Exception):
+    """urlencoded 본문이 MAX_FORM_BODY_BYTES 를 넘었다."""
+
+
+async def _read_capped_body(request: Request, limit: int) -> bytes:
+    """request.stream() 을 청크 단위로 읽다가 limit 을 넘는 순간 멈춘다 — 큰 본문을 전부 메모리에
+    올린 뒤에야 거부하지 않기 위해서다."""
+    chunks, total = [], 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            raise FormTooLarge()
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 async def _urlencoded_form(request: Request) -> dict:
     """이 환경에는 python-multipart 가 없어 `request.form()`(starlette 1.6)이 urlencoded 본문마저
-    못 읽는다(실측). 파일 업로드가 없는 로그인 폼이라 표준 라이브러리로 직접 읽는다."""
-    body = await request.body()
-    return dict(parse_qsl(body.decode("utf-8"), keep_blank_values=True))
+    못 읽는다(실측). 파일 업로드가 없는 로그인 폼이라 표준 라이브러리로 직접 읽는다.
+
+    누구나 두드릴 수 있는 엔드포인트라 (1) 본문 크기를 MAX_FORM_BODY_BYTES 로 제한하고
+    (2) 비 UTF-8 바이트가 섞여도 500 대신 손실 허용 디코드로 넘어간다(실측: 원시 바이트를 보내면
+    UnicodeDecodeError 로 미처리 예외가 터졌었다)."""
+    body = await _read_capped_body(request, MAX_FORM_BODY_BYTES)
+    return dict(parse_qsl(body.decode("utf-8", "replace"), keep_blank_values=True))
 
 
 def _option_combos(options):
@@ -95,11 +116,20 @@ def shop_router(repo, domain) -> APIRouter:
 
     # ── 상품 ────────────────────────────────────────────
     @router.get("", response_class=HTMLResponse)
-    def product_list(request: Request, category: str = "", q: str = "", page: int = 1):
+    def product_list(request: Request, category: str = "", q: str = "", page: str = "1"):
+        # HTML 화면은 422 JSON 대신 잘못된 값을 1로 눙친다 (page=abc 실측 — 지금은 422 JSON).
+        try:
+            page_num = max(1, int(page))
+        except (TypeError, ValueError):
+            page_num = 1
         shop = get_shop()
-        rows, total = shop.products(category=category or None, q=q or None, page=page)
-        return render(request, "products.html", current_customer(request), rows=rows, total=total, page=page,
-                      pages=max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE),
+        rows, total = shop.products(category=category or None, q=q or None, page=page_num)
+        pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+        if page_num > pages:  # page=999 처럼 범위 밖이면 마지막 페이지로 당긴다
+            page_num = pages
+            rows, total = shop.products(category=category or None, q=q or None, page=page_num)
+        return render(request, "products.html", current_customer(request), rows=rows, total=total, page=page_num,
+                      pages=pages,
                       categories=shop.category_list(), query=dict(request.query_params), path=request.url.path)
 
     @router.get("/products/{product_id}", response_class=HTMLResponse)
@@ -117,7 +147,10 @@ def shop_router(repo, domain) -> APIRouter:
 
     @router.post("/login")
     async def login(request: Request):
-        form = await _urlencoded_form(request)
+        try:
+            form = await _urlencoded_form(request)
+        except FormTooLarge:
+            return HTMLResponse("요청 본문이 너무 큽니다.", status_code=413)
         phone = (form.get("phone") or "").strip()
         c = repo.customer_by_phone(normalize_phone(phone)) if phone else None
         if not c:

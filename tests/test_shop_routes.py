@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """쇼핑몰 라우터: 상품 목록/상세, 로그인/로그아웃, 세션 보호."""
 import os
+import re
 import sqlite3
 
 import pytest
@@ -60,24 +61,64 @@ def sample_customer(domain):
     return con.execute("select name, phone from customers order by customer_id limit 1").fetchone()
 
 
+def _total_count(html: str) -> int:
+    m = re.search(r"총 (\d+)건", html)
+    assert m, "페이지네이션 총 건수 표시를 찾지 못함"
+    return int(m.group(1))
+
+
 def test_product_list_renders_with_filter_and_paging(client):
     r = client.get("/shop")
     assert r.status_code == 200 and "<h1>모두몰</h1>" in r.text
     assert "page=2" in r.text
+    total_all = _total_count(r.text)
 
     r = client.get("/shop", params={"category": "COSMETICS"})
-    assert r.status_code == 200 and "화장품" in r.text
+    assert r.status_code == 200
+    total_cosmetics = _total_count(r.text)
+    assert 0 < total_cosmetics < total_all  # 실제로 좁혀졌는지 — 카테고리 nav 라벨 존재만으론 부족
 
     r = client.get("/shop", params={"q": "존재하지않는상품이름xyz"})
     assert "결과 없음" in r.text
 
 
+def test_product_list_page_out_of_range_clamps_to_last(client):
+    r = client.get("/shop", params={"page": 999})
+    assert r.status_code == 200
+    assert "결과 없음" not in r.text  # 마지막 페이지로 당겨져 실제 상품이 보여야 한다
+    m = re.search(r"(\d+) / (\d+) · 총 (\d+)건", r.text)
+    assert m and m.group(1) == m.group(2)  # 현재 페이지 == 마지막 페이지
+
+
+def test_product_list_invalid_page_falls_back_to_html(client):
+    r = client.get("/shop", params={"page": "abc"})
+    assert r.status_code == 200  # 422 JSON 이 아니라 1페이지 HTML
+    assert "<h1>모두몰</h1>" in r.text
+
+
 def test_product_detail_and_404(client):
     r = client.get("/shop/products/P1001")
-    assert r.status_code == 200 and "요일팬티 7종 세트" in r.text and "장바구니" in r.text
+    assert r.status_code == 200 and "요일팬티 7종 세트" in r.text
+    assert 'action="/shop/cart/add"' in r.text and 'name="qty"' in r.text  # 담기 폼 자체를 확인
+
     missing = client.get("/shop/products/P9999")
     assert missing.status_code == 404 and "text/html" in missing.headers["content-type"]
     assert "찾을 수 없습니다" in missing.text
+
+
+def test_login_with_non_utf8_body_does_not_500(client):
+    # 인증 없이 누구나 두드릴 수 있는 엔드포인트 — 깨진 바이트가 섞여도 500 이 아니라 정상 안내여야 한다
+    r = client.post("/shop/login", content=b"phone=\xff\xfe\x00",
+                    headers={"content-type": "application/x-www-form-urlencoded"})
+    assert r.status_code == 200 and "가입 이력이 없는 번호" in r.text
+
+
+def test_login_with_oversized_body_is_rejected(client):
+    from server.shop import MAX_FORM_BODY_BYTES
+    huge = b"phone=" + b"9" * (MAX_FORM_BODY_BYTES + 1024)
+    r = client.post("/shop/login", content=huge,
+                    headers={"content-type": "application/x-www-form-urlencoded"})
+    assert r.status_code == 413
 
 
 def test_login_sets_session_and_logout_clears(app, sample_customer):
