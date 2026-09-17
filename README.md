@@ -60,6 +60,37 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 - 볼륨을 추가하지 않는다(데이터 초기화가 의도된 동작).
 - 배포 후 `/admin` 접속 시 Basic 인증 프롬프트가 뜨는지, `/`·`/shop`은 그대로 열리는지 확인한다. `ADMIN_PASSWORD` 를 빠뜨리고 배포했다면 `/admin` 이 503 을 돌려주는지도 확인한다(무인증으로 열리면 안 된다).
 
+## 배포(Render, 무료 등급)
+
+레일웨이 체험판이 만료된 경우의 대안. 위 "배포(Railway)" 절의 내용(초기화되는 데이터, 환경변수
+의미, BYOK, 보안 범위)은 그대로 적용되고, 여기서는 Render 고유의 차이만 적는다.
+
+**Blueprint**: 저장소 루트의 `render.yaml`이 무료 등급 Docker 웹 서비스를 선언한다(브랜치
+`feat/voice-agent`, 빌드는 `Dockerfile` 그대로 사용). Render 대시보드에서 "New +" → "Blueprint"로
+이 저장소를 연결하면 `render.yaml`을 읽어 서비스를 자동 생성한다. 포트는 Render 가 컨테이너에
+`PORT` 환경변수로 주입하고(`server/__main__.py`가 이미 읽음), `render.yaml`이 `HOST=0.0.0.0`을
+지정해 둔다.
+
+**대시보드에서 할 일**
+1. Render 대시보드 → "New +" → "Blueprint" → 이 GitHub 저장소(`GojoSuperman/Creating-a-Customer-Service-Agent`) 선택.
+2. 브랜치가 `feat/voice-agent`인지 확인하고 Blueprint 적용(Apply).
+3. 생성된 서비스의 Environment 탭에서 `ADMIN_PASSWORD`(필수) 값을 채운다. `OPENAI_API_KEY`는 서버 쪽 폴백을 두고 싶을 때만 채운다(둘 다 `render.yaml`에 `sync: false`로 선언돼 있어 대시보드 입력을 기다린다).
+4. 첫 배포가 끝나면 `/admin`이 Basic 인증을 요구하는지, `ADMIN_PASSWORD`를 빠뜨렸다면 503을 돌려주는지 확인한다(레일웨이 절의 확인 항목과 동일).
+
+**환경변수**(`render.yaml`이 이미 선언; 값만 대시보드에서 채우면 됨)
+
+| 변수 | render.yaml 상태 | 설명 |
+|---|---|---|
+| `HOST` | `0.0.0.0`로 고정 | Render 는 외부에서 컨테이너로 접속하므로 필요. |
+| `PORT` | Render 가 자동 주입(선언 없음) | 컨테이너가 리슨할 포트. `server/__main__.py`가 `os.environ["PORT"]`를 읽는다. |
+| `ADMIN_PASSWORD` | `sync: false`(대시보드에서 입력 필요) | 위 레일웨이 절과 동일하게 fail-closed. |
+| `OPENAI_API_KEY` | `sync: false`(선택) | 위 레일웨이 절과 동일하게 선택 사항(BYOK로 대체 가능). |
+
+**무료 등급 제약**
+- 인스턴스 사양은 0.5 CPU / 512MB RAM. 기동 직후 RSS 를 별도 측정(런타임 의존성만 설치한 venv, 8010 이 아닌 포트)한 결과 약 **96~98MB**로, 512MB 한도에 여유가 있다(langchain/langgraph/fastapi/uvicorn 임포트와 SQLite 생성 포함, `/`·`/api/domain` 요청까지 받은 뒤 측정).
+- 무료 등급은 트래픽이 없으면 인스턴스가 잠들고, 다음 요청이 오면 다시 깨운다 — **첫 요청이 수십 초까지 느릴 수 있다**(콜드 스타트). 이 앱은 기동 시 DB 를 새로 생성하므로 콜드 스타트가 더 걸릴 수 있음을 감안할 것.
+- 볼륨을 붙이지 않는다(레일웨이와 동일하게 데이터 초기화가 의도된 동작이고, 무료 등급은 영구 디스크를 애초에 지원하지 않는다).
+
 ## 구조
 
 | 경로 | 역할 |

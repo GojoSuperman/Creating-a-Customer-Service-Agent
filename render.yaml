@@ -1,0 +1,18 @@
+# Render Blueprint. 대시보드에서 이 저장소를 "Blueprint"로 연결하면
+# 아래 설정대로 서비스가 자동 생성된다(사람이 값 채울 항목: ADMIN_PASSWORD, OPENAI_API_KEY).
+# 참고: https://render.com/docs/blueprint-spec (2026-09-17 확인)
+services:
+  - type: web
+    name: customer-service-agent
+    runtime: docker
+    plan: free
+    branch: feat/voice-agent
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
