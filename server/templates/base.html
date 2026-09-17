@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}어드민{% endblock %} · 모두몰 어드민</title>
+<link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="brand" href="/admin">모두몰 어드민</a>
+  <a href="/admin/orders">주문</a>
+  <a href="/admin/returns">반품·교환</a>
+  <a href="/admin/calls">통화 로그</a>
+  <a href="/admin/customers">고객</a>
+  <a class="right" href="/">통화 화면</a>
+</nav>
+<main>
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>

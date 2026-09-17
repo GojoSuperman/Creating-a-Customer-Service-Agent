@@ -91,6 +91,11 @@ def create_app(pipeline, domain: Domain, tts=None) -> FastAPI:
         # 조용히 이관으로 바꾸지 않는다 — 원인이 그대로 보이게 500으로 드러낸다
         return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"})
 
+    repo = getattr(pipeline, "repo", None)
+    if repo is not None:
+        from server.admin import admin_router
+        app.include_router(admin_router(repo))
+
     if WEB.exists():
         app.mount("/static", StaticFiles(directory=WEB), name="static")
     return app

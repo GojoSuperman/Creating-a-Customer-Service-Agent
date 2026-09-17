@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}고객{% endblock %}
+{% block body %}
+<h1>고객</h1>
+<form class="filters" method="get" action="/admin/customers">
+  <input name="q" value="{{ query.get('q', '') }}" placeholder="이름 또는 전화번호">
+  <button type="submit">검색</button>
+</form>
+{% if not rows %}<p class="empty">결과 없음</p>{% endif %}
+<table>
+  <thead><tr><th>고객 ID</th><th>이름</th><th>전화</th><th>지역</th><th>가입일</th></tr></thead>
+  <tbody>
+  {% for c in rows %}
+    <tr>
+      <td><a href="/admin/customers/{{ c.customer_id }}">{{ c.customer_id }}</a></td>
+      <td>{{ c.name }}</td>
+      <td>{{ c.phone }}</td>
+      <td>{{ c.address_region }}</td>
+      <td>{{ c.joined_at | mmdd }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% include "_paging.html" %}
+{% endblock %}

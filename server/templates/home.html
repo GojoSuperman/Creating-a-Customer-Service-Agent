@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}요약{% endblock %}
+{% block body %}
+<h1>요약</h1>
+<div class="cards">
+  <div class="card"><span class="label">오늘 통화</span><span class="value">{{ s.calls_today }}</span></div>
+  <div class="card"><span class="label">진행중 주문</span><span class="value">{{ s.orders_in_progress }}</span></div>
+</div>
+<h2>반품 단계</h2>
+<ul class="stages">
+  {% for r in s.returns_by_stage %}
+    <li><a href="/admin/returns?stage={{ r.stage }}">{{ r.stage }}</a> {{ r.n }}건</li>
+  {% endfor %}
+</ul>
+<h2>최근 통화</h2>
+<ul class="recent">
+  {% for c in s.recent_calls %}
+    <li><a href="/admin/calls/{{ c.call_id }}">{{ c.started_at | stamp }}</a>
+        · {{ c.customer_name or "비회원" }} · {{ c.turn_count }}턴</li>
+  {% else %}
+    <li class="empty">통화 기록 없음</li>
+  {% endfor %}
+</ul>
+{% endblock %}

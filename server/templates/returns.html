@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}반품·교환{% endblock %}
+{% block body %}
+<h1>반품·교환</h1>
+<form class="filters" method="get" action="/admin/returns">
+  <input name="stage" value="{{ query.get('stage', '') }}" placeholder="단계">
+  <input name="type" value="{{ query.get('type', '') }}" placeholder="유형">
+  <button type="submit">검색</button>
+</form>
+{% if not rows %}<p class="empty">결과 없음</p>{% endif %}
+<table>
+  <thead><tr><th>반품번호</th><th>접수일</th><th>유형</th><th>단계</th><th>주문번호</th><th>고객</th><th>환불액</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><a href="/admin/returns/{{ r.return_id }}">{{ r.return_id }}</a></td>
+      <td>{{ r.requested_at | mmdd }}</td>
+      <td>{{ r.type }}</td>
+      <td>{{ r.stage }}</td>
+      <td><a href="/admin/orders/{{ r.order_id }}">{{ r.order_id }}</a></td>
+      <td>{% if r.customer_id %}<a href="/admin/customers/{{ r.customer_id }}">{{ r.customer_name }}</a>{% else %}비회원{% endif %}</td>
+      <td class="num">{{ r.refund_amount | won }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% include "_paging.html" %}
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}통화 로그{% endblock %}
+{% block body %}
+<h1>통화 로그</h1>
+{% if not rows %}<p class="empty">결과 없음</p>{% endif %}
+<table>
+  <thead><tr><th>통화 ID</th><th>시작</th><th>종료</th><th>고객</th><th>턴 수</th><th>라우트</th></tr></thead>
+  <tbody>
+  {% for c in rows %}
+    <tr>
+      <td><a href="/admin/calls/{{ c.call_id }}">{{ c.call_id }}</a></td>
+      <td>{{ c.started_at | stamp }}</td>
+      <td>{{ c.ended_at | stamp }}</td>
+      <td>{% if c.customer_id %}<a href="/admin/customers/{{ c.customer_id }}">{{ c.customer_name }}</a>{% else %}비회원{% endif %}</td>
+      <td>{{ c.turn_count }}</td>
+      <td>{{ c.routes | join(', ') }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% include "_paging.html" %}
+{% endblock %}

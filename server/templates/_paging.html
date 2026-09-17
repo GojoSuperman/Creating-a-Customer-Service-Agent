@@ -1,0 +1,5 @@
+<div class="paging">
+  {% if page > 1 %}<a href="{{ page_url(path, query, page - 1) }}">← 이전</a>{% endif %}
+  <span>{{ page }} / {{ pages }} · 총 {{ total }}건</span>
+  {% if page < pages %}<a href="{{ page_url(path, query, page + 1) }}">다음 →</a>{% endif %}
+</div>

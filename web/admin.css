@@ -1,0 +1,14 @@
+body{font-family:system-ui;margin:0;color:#222}
+.nav{display:flex;gap:16px;padding:12px 20px;background:#1f2430;color:#fff}
+.nav a{color:#fff;text-decoration:none}
+.nav .right{margin-left:auto}
+main{padding:20px;max-width:1100px}
+table{border-collapse:collapse;width:100%}
+th,td{border-bottom:1px solid #e3e3e3;padding:8px;text-align:left;font-size:14px}
+td.num{text-align:right}
+.filters{display:flex;gap:8px;margin:12px 0}
+.paging{display:flex;gap:12px;align-items:center;margin-top:16px}
+.cards{display:flex;gap:16px}
+.card{border:1px solid #e3e3e3;border-radius:8px;padding:16px;min-width:140px}
+.card .value{display:block;font-size:28px;font-weight:700}
+.empty{color:#888}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}주문{% endblock %}
+{% block body %}
+<h1>주문</h1>
+<form class="filters" method="get" action="/admin/orders">
+  <input name="status" value="{{ query.get('status', '') }}" placeholder="상태 (예: 배송중)">
+  <input name="customer_id" value="{{ query.get('customer_id', '') }}" placeholder="고객 ID">
+  <input name="from" value="{{ query.get('from', '') }}" placeholder="시작일 2026-09-01">
+  <input name="to" value="{{ query.get('to', '') }}" placeholder="종료일 2026-09-30">
+  <button type="submit">검색</button>
+</form>
+{% if not rows %}<p class="empty">결과 없음</p>{% endif %}
+<table>
+  <thead><tr><th>주문번호</th><th>주문일</th><th>고객</th><th>상태</th><th>금액</th><th>반품</th></tr></thead>
+  <tbody>
+  {% for o in rows %}
+    <tr>
+      <td><a href="/admin/orders/{{ o.order_id }}">{{ o.order_id }}</a></td>
+      <td>{{ o.ordered_at | mmdd }}</td>
+      <td>{% if o.customer_id %}<a href="/admin/customers/{{ o.customer_id }}">{{ o.customer_name }}</a>{% else %}비회원{% endif %}</td>
+      <td>{{ o.status }}{% if o.status_detail %} · {{ o.status_detail }}{% endif %}</td>
+      <td class="num">{{ o.order_amount | won }}</td>
+      <td>{% if o.return_id %}<a href="/admin/returns/{{ o.return_id }}">{{ o.return_id }}</a>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% include "_paging.html" %}
+{% endblock %}
