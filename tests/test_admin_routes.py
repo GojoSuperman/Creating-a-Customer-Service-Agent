@@ -1,3 +1,4 @@
+import json
 import re
 import sqlite3
 
@@ -105,28 +106,44 @@ def test_customer_detail_page(client):
     assert "/admin/orders/" in r.text
 
 
-def test_call_detail_page(client):
-    # 통화 목록에서 실제 링크된 통화 ID 와 그 행의 턴 수를 함께 뽑는다
-    # (call_id 하드코딩 금지 — 공유 DB 의 call_logs 는 다른 테스트가 쓰는 가변 자원).
-    # 턴 수 0 인 행은 뮤테이션 테스트로 고정값과 구분이 안 되므로 0 이 아닌 행을 고른다.
+def test_call_detail_page(modumall_dir):
+    # 공유 DB 의 call_logs 는 다른 테스트(test_generate 의 재생성 등)가 계속 건드리는
+    # 가변 자원이라 "턴이 있는 통화가 목록에 존재한다"를 전제로 할 수 없다.
+    # test_html_escapes_customer_name 과 같은 패턴으로 인메모리 DB 에 통화 1건을
+    # 직접 시드해, 목록 -> 상세 흐름에서 턴 수·질문·답변이 그대로 렌더되는지 검증한다.
+    domain = load_domain(modumall_dir)
+    con = sqlite3.connect(":memory:", check_same_thread=False)
+    con.row_factory = sqlite3.Row
+    con.executescript((modumall_dir.parent.parent / "server" / "db" / "schema.sql").read_text(encoding="utf-8"))
+    turns = [
+        {"q": "배송이 언제 오나요", "a": "내일 도착 예정입니다", "route": "SHIPPING", "confidence": 0.91},
+        {"q": "반품하고 싶어요", "a": "반품 절차를 안내드립니다", "route": "RETURN", "confidence": 0.77},
+    ]
+    con.execute(
+        "insert into call_logs (call_id, customer_id, started_at, ended_at, turns) values (?,?,?,?,?)",
+        ("call-detail-page-1", None, "2026-09-01T00:00:00", "2026-09-01T00:05:00",
+         json.dumps(turns, ensure_ascii=False)),
+    )
+    con.commit()
+
+    fake_pipeline = FakePipelineWithRepo.__new__(FakePipelineWithRepo)
+    fake_pipeline.repo = type("R", (), {"con": con})()
+    seeded_client = TestClient(create_app(fake_pipeline, domain))
+
     row_pattern = re.compile(
         r'<td><a href="/admin/calls/([^"]+)">.*?</a></td>\s*'
         r'<td>.*?</td>\s*<td>.*?</td>\s*<td>.*?</td>\s*<td>(\d+)</td>', re.S)
-    call_id = turn_count = None
-    for page in range(1, 10):
-        listing = client.get("/admin/calls", params={"page": page})
-        rows = row_pattern.findall(listing.text)
-        if not rows:
-            break
-        nonzero = next((row for row in rows if row[1] != "0"), None)
-        if nonzero:
-            call_id, turn_count = nonzero
-            break
-    assert call_id, "턴이 있는 통화를 찾지 못함"
-    r = client.get(f"/admin/calls/{call_id}")
+    listing = seeded_client.get("/admin/calls")
+    rows = row_pattern.findall(listing.text)
+    assert rows == [("call-detail-page-1", "2")]
+    call_id, turn_count = rows[0]
+
+    r = seeded_client.get(f"/admin/calls/{call_id}")
     assert r.status_code == 200
     detail_turns = re.search(r"턴 수</dt>\s*<dd>(\d+)</dd>", r.text)
     assert detail_turns and detail_turns.group(1) == turn_count
+    assert "배송이 언제 오나요" in r.text and "내일 도착 예정입니다" in r.text
+    assert "반품하고 싶어요" in r.text and "반품 절차를 안내드립니다" in r.text
 
 
 @pytest.mark.parametrize("path", [

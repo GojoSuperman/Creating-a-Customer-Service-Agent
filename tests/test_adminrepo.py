@@ -154,12 +154,25 @@ def test_return_detail_has_history_and_order(admin):
     assert admin.return_detail("R-9999") is None
 
 
-def test_call_detail_parses_turns(admin):
-    rows, _ = admin.calls()
-    c = admin.call_detail(rows[0]["call_id"])
-    assert c["call_id"] == rows[0]["call_id"]
-    assert isinstance(c["turns"], list)
+def test_call_detail_parses_turns():
+    # 공유 DB 의 call_logs 는 다른 테스트(test_generate 의 재생성 등)가 계속 건드리는
+    # 가변 자원이라 "턴이 있는 통화가 존재한다"를 전제로 할 수 없다. 인메모리 DB 에
+    # 통화 1건을 직접 시드해 턴 파싱과 customer 조인 여부를 확인한다.
+    con = _memory_con()
+    turns = [{"q": "질문1", "a": "답변1", "route": "SHIPPING", "confidence": 0.8}]
+    con.execute(
+        "insert into call_logs (call_id, customer_id, started_at, ended_at, turns) values (?,?,?,?,?)",
+        ("call-detail-1", None, "2026-09-01T00:00:00", "2026-09-01T00:05:00", json.dumps(turns, ensure_ascii=False)),
+    )
+    con.commit()
+
+    admin = AdminRepo(con)
+    c = admin.call_detail("call-detail-1")
+    assert c["call_id"] == "call-detail-1"
+    assert isinstance(c["turns"], list) and len(c["turns"]) == 1
+    assert c["turns"][0]["q"] == "질문1"
     assert "customer" in c  # 비회원 통화면 None
+    assert c["customer"] is None
     assert admin.call_detail("없는통화") is None
 
 
