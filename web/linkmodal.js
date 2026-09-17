@@ -1,4 +1,4 @@
-// 헤더의 "어드민"·"쇼핑몰" 링크를 새 탭 대신 모달(팝업)로 띄운다.
+// 헤더의 "쇼핑몰" 링크를 새 탭 대신 모달(팝업)로 띄운다.
 // 설정 모달(settings.js)과 같은 <dialog> 패턴: Esc·배경 클릭·X 버튼으로 닫힌다.
 export function createLinkModal() {
   const dialog = document.getElementById("link-modal");
@@ -12,8 +12,8 @@ export function createLinkModal() {
     title.textContent = label || "";
     frame.title = label || "링크 미리보기";
     // 지연 로딩: 처음 열 때만 iframe 을 로드한다.
-    // 같은 링크를 다시 열 때는 새로 불러오지 않고 이전 상태(스크롤 위치, 어드민 기본 인증 등)를 유지한다.
-    // 다른 링크(예: 어드민 -> 쇼핑몰)를 열 때만 src 를 바꿔 새로 로드한다.
+    // 같은 링크를 다시 열 때는 새로 불러오지 않고 이전 상태(스크롤 위치 등)를 유지한다.
+    // 다른 href 로 열 때만 src 를 바꿔 새로 로드한다.
     if (loadedHref !== href) {
       frame.src = href;
       loadedHref = href;
