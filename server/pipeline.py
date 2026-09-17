@@ -290,7 +290,7 @@ class Pipeline:
                 continue
             ordered_date = datetime.date.fromisoformat(ordered_at[:10])
             days = (TODAY - ordered_date).days
-            if 0 <= days <= 14 and o.get("status") != "배송완료":
+            if 0 <= days <= 14 and o.get("status") not in ("배송완료", "반품완료", "교환완료"):
                 month, day = int(ordered_at[5:7]), int(ordered_at[8:10])
                 greeting += f" {month}월 {day}일 주문하신 {o.get('items_summary', '')} 건이신가요?"
                 break

@@ -45,17 +45,31 @@ COURIERS = ["롯데택배"]
 RETURN_REASONS = ["사이즈가 맞지 않음", "색상이 상세페이지와 다름", "단순 변심", "배송 중 파손", "오배송", "소재가 기대와 다름", "봉제 불량"]
 
 # 반품·교환 단계 → 주문 화면에 보여줄 상세 문구. 주문과 반품이 다른 말을 하지 않도록 한 곳에서 파생한다.
-# (각 문구는 반품 단계 키 문자열을 공백 없이 그대로 포함해야 한다 — 상담 응답이 반품 단계를 실제로 담고 있는지
-# 검증하는 테스트가 이 문자열 포함 여부로 확인하기 때문.)
+# 반품과 교환은 승인 이후 결과가 다르다(환불 vs 교환품 재출고, policy.md §5·§6.2)— 하나의 표를
+# 문자열 치환으로 돌려쓰지 않고, 유형별로 표를 분리해 교환 주문에 "환불" 문구가 나가지 않게 한다.
+# 검품중까지의 문구는 손으로 만든 정식 주문 O-1006(반품·검품중)·O-1007(반품·승인)의 표기에 맞춘다.
 RETURN_STAGE_DETAIL = {
     "접수": "반품 접수",
-    "수거대기": "수거대기 · 기사님 방문 예정",
-    "수거완료": "수거완료 · 입고 대기",
-    "입고완료": "입고완료 · 검품 대기",
-    "검품중": "입고완료 · 검품중",
-    "승인": "승인완료 · 환불 처리중",
+    "수거대기": "수거 대기",
+    "수거완료": "수거 완료 · 입고 대기",
+    "입고완료": "입고 완료 · 검품 대기",
+    "검품중": "입고 완료 · 검품중",
+    "승인": "승인 완료 · 환불 처리중",
     "환불완료": "환불 완료",
 }
+EXCHANGE_STAGE_DETAIL = {
+    "접수": "교환 접수",
+    "수거대기": "수거 대기",
+    "수거완료": "수거 완료 · 입고 대기",
+    "입고완료": "입고 완료 · 검품 대기",
+    "검품중": "입고 완료 · 검품중",
+    "승인": "승인 완료 · 교환품 재출고 준비",
+    "환불완료": "교환 완료",
+}
+# 환불까지(반품) 또는 교환품 재출고까지(교환) 끝난 반품의 주문이 도달하는 종결 상태.
+# '배송완료'를 재사용하지 않는다 — 모델 프롬프트에는 status_detail 이 아니라 status 만 들어가므로
+# (server/answer.py), status 만으로도 반품/교환이 끝났다는 사실이 드러나야 한다.
+RETURN_FINISHED_STATUS = {"반품": "반품완료", "교환": "교환완료"}
 
 
 def dt(d: date, h=0, m=0):
@@ -282,20 +296,14 @@ class Gen:
             upto = self.rnd.randint(1, 6)
             hist = [{"stage": s, "date": min(req + timedelta(days=i), TODAY).isoformat()} for i, s in enumerate(stages[:upto + 1])]
             stage = hist[-1]["stage"]
-            is_exchange = status == "교환진행"
-            detail = RETURN_STAGE_DETAIL[stage]
-            if is_exchange:
-                detail = detail.replace("반품", "교환")
-            # 환불까지 끝난 반품은 더 이상 진행 중이 아니므로 주문 상태를 종결 상태로 되돌린다.
-            # 기존 상태 값 집합(결제완료·제작중·배송중·배송완료·반품진행·교환진행)만으로 표현 가능해
-            # 새 상태 값을 추가하지 않는다 — 새 값을 추가하면 orders 의 상태가 '배송완료 아님' 을
-            # 종결로 취급하는 test_adminrepo.py::test_summary_counts 의 exhaustive 가정
-            # ("select count(*) from orders where status not in ('배송완료')") 이 깨진다.
-            final_status = "배송완료" if stage == "환불완료" else status
+            r_type = "교환" if status == "교환진행" else "반품"
+            detail = (EXCHANGE_STAGE_DETAIL if r_type == "교환" else RETURN_STAGE_DETAIL)[stage]
+            # 환불(반품) 또는 교환품 재출고(교환)까지 끝나면 더 이상 진행 중이 아니므로 종결 상태로 되돌린다.
+            final_status = RETURN_FINISHED_STATUS[r_type] if stage == "환불완료" else status
             inspected = stage in ("승인", "환불완료")
             fault = self.rnd.choice(["판매자", "고객"]) if inspected else None
             reason = self.rnd.choice(RETURN_REASONS)
-            r = {"return_id": rid, "order_id": oid, "type": "교환" if status == "교환진행" else "반품", "return_scope": "전체",
+            r = {"return_id": rid, "order_id": oid, "type": r_type, "return_scope": "전체",
                  "reason_stated": reason, "requested_at": req.isoformat(), "stage": stage,
                  "inspection_result": (("하자" if fault == "판매자" else "정상") if inspected else None),
                  "fault_party": fault, "shipping_fee_bearer": (("판매자" if fault == "판매자" else "고객") if inspected else None),

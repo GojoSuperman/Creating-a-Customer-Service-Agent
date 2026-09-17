@@ -82,7 +82,7 @@ class Repo:
             out.append(o)
         return out
 
-    IN_PROGRESS_EXCLUDED = ("배송완료", "취소")
+    IN_PROGRESS_EXCLUDED = ("배송완료", "반품완료", "교환완료", "취소")
 
     def customer_profile(self, cid, limit=5):
         """상담원 화면용 고객 프로필. 주소·전화 등 개인정보를 포함하므로 프롬프트에는 넣지 않는다.
@@ -120,7 +120,7 @@ class Repo:
         rows = self._all("""
             select customer_id, max(ordered_at) as last_ordered_at
             from orders
-            where ordered_at >= ? and ordered_at <= ? and status != '배송완료'
+            where ordered_at >= ? and ordered_at <= ? and status not in ('배송완료','반품완료','교환완료')
             group by customer_id
             order by last_ordered_at desc
             limit ?""", cutoff_iso, today_iso, limit)

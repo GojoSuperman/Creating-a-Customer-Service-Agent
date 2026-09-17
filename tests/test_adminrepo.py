@@ -230,7 +230,7 @@ def test_summary_counts(admin):
     assert s["calls_today"] == admin.con.execute(
         "select count(*) from call_logs where substr(started_at,1,10)=?", ("2026-09-17",)).fetchone()[0]
     assert s["orders_in_progress"] == admin.con.execute(
-        "select count(*) from orders where status not in ('배송완료')").fetchone()[0]
+        "select count(*) from orders where status not in ('배송완료','반품완료','교환완료')").fetchone()[0]
     assert {r["stage"] for r in s["returns_by_stage"]} == {
         r[0] for r in admin.con.execute("select distinct stage from returns").fetchall()}
     assert len(s["recent_calls"]) <= 5

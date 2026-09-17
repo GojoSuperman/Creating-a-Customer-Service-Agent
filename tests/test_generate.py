@@ -169,29 +169,55 @@ def test_status_distribution(db):
 
 
 def test_return_progress_detail_matches_return_stage(tmp_path):
-    """반품·교환 진행 주문의 status_detail 은 그 반품의 현재 단계에서 파생돼야 한다."""
-    from server.db.generate import generate
+    """반품·교환 진행 주문의 status_detail 은 그 반품의 현재 단계·유형에서 정확히 파생돼야 한다
+    (부분 문자열 포함이 아니라 매핑 표와의 정확 일치 — '반품' 문자열을 '교환'으로 치환하는 식으로는
+    통과할 수 없다)."""
+    from server.db.generate import generate, RETURN_STAGE_DETAIL, EXCHANGE_STAGE_DETAIL
 
     db = generate(_domain_dir_copy(tmp_path))
     con = sqlite3.connect(str(db))
     # 손으로 만든 정식 주문(O-1006~1008)은 그 자체가 정답셋 기준이므로 이 일반 규칙 검사에서 제외한다
-    # (예: O-1008 은 품절로 인한 환불 전환 안내문이라 반품 단계 문구를 그대로 담지 않는다).
+    # (예: O-1008 은 품절로 인한 환불 전환 안내문이라 일반 매핑을 따르지 않는다).
     rows = con.execute(
-        "select o.order_id, o.status, o.status_detail, r.stage from orders o "
+        "select o.order_id, o.status, o.status_detail, r.type, r.stage from orders o "
         "join returns r on r.order_id = o.order_id "
         "where o.status in ('반품진행','교환진행') and o.order_id > 'O-1011'").fetchall()
     assert rows, "반품 진행 주문이 있어야 한다"
-    for order_id, status, detail, stage in rows:
-        assert stage in (detail or ""), f"{order_id}: 주문 상세 '{detail}' 가 반품 단계 '{stage}' 를 담지 않는다"
+    for order_id, status, detail, r_type, stage in rows:
+        table = EXCHANGE_STAGE_DETAIL if r_type == "교환" else RETURN_STAGE_DETAIL
+        assert detail == table[stage], f"{order_id}: 주문 상세 '{detail}' 가 매핑 기대값 '{table[stage]}' 과 다르다"
 
 
-def test_finished_return_is_not_in_progress(tmp_path):
-    """환불까지 끝난 반품의 주문이 '반품진행' 으로 남아 있으면 안 된다."""
+def test_exchange_detail_never_mentions_refund(tmp_path):
+    """교환 진행 중인 주문의 status_detail 에는 '환불' 문구가 들어가면 안 된다
+    (policy.md §7.3 '고객 동의 없이 교환을 환불로 바꾸는 것' 금지 — 상담 모델이 이 문구를
+    그대로 읽으면 동의 없이 환불로 답할 수 있다)."""
     from server.db.generate import generate
 
     db = generate(_domain_dir_copy(tmp_path))
     con = sqlite3.connect(str(db))
-    bad = con.execute(
-        "select o.order_id from orders o join returns r on r.order_id = o.order_id "
-        "where r.stage = '환불완료' and o.status in ('반품진행','교환진행')").fetchall()
+    rows = con.execute(
+        "select o.order_id, o.status_detail from orders o join returns r on r.order_id = o.order_id "
+        "where r.type = '교환' and o.order_id > 'O-1011'").fetchall()
+    assert rows, "합성 교환 주문이 있어야 한다"
+    bad = [(oid, detail) for oid, detail in rows if detail and "환불" in detail]
+    assert bad == [], f"교환 주문인데 환불 문구가 들어간 건: {bad}"
+
+
+def test_finished_return_is_not_in_progress(tmp_path):
+    """환불(반품) 또는 교환품 재출고(교환)까지 끝난 주문은 '반품진행'/'교환진행' 으로 남아 있으면
+    안 되고, 대신 유형에 맞는 종결 상태('반품완료'/'교환완료')로 바뀌어야 한다. 환불완료 건이
+    실제로 존재하는지도 함께 확인한다(0건이면 통과하는 구조를 방지)."""
+    from server.db.generate import generate
+
+    db = generate(_domain_dir_copy(tmp_path))
+    con = sqlite3.connect(str(db))
+    finished = con.execute(
+        "select o.order_id, o.status, r.type from orders o join returns r on r.order_id = o.order_id "
+        "where r.stage = '환불완료'").fetchall()
+    assert finished, "환불완료 단계인 반품이 있어야 한다"
+    bad = [(oid, status) for oid, status, _ in finished if status in ("반품진행", "교환진행")]
     assert bad == [], f"환불완료인데 진행 중으로 남은 주문: {bad}"
+    wrong_terminal = [(oid, status, r_type) for oid, status, r_type in finished
+                       if status != ("교환완료" if r_type == "교환" else "반품완료")]
+    assert wrong_terminal == [], f"종결 상태가 유형과 맞지 않는 건: {wrong_terminal}"
