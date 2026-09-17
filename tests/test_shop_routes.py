@@ -311,3 +311,29 @@ def test_checkout_blocked_message_is_deduplicated(client, modumall_dir_module):
         r = c.post("/shop/checkout", follow_redirects=True)
         reason = f"{soldout_name} 은(는) 품절입니다."
         assert r.text.count(reason) == 1
+
+
+def test_shop_order_is_visible_to_agent_tool(client, modumall_dir_module):
+    """쇼핑몰에서 만든 주문을 상담 에이전트의 조회 도구(get_order_status)가 찾을 수 있어야 한다.
+
+    server/tools.py 의 진입점은 build_tools 가 아니라 make_tools(domain) 이며, 반환값은
+    {함수명: 함수} 딕셔너리다. LLM 없이도 이 딕셔너리에서 get_order_status 를 직접 꺼내 부를 수
+    있으므로(내부에서 repo.order() 를 호출할 뿐 모델 호출은 없다) 대체 검증 없이 실제 도구
+    진입점으로 검증한다."""
+    import sqlite3
+
+    from server.domain import load_domain as _load
+    from server.tools import make_tools
+
+    con = sqlite3.connect(str(_load(modumall_dir_module).db_path))
+    with TestClient(client.app) as c:
+        _login(c, con)
+        c.post("/shop/cart/add", data={"product_id": "P1001", "qty": 1, "option": "M"}, follow_redirects=False)
+        location = c.post("/shop/checkout", follow_redirects=False).headers["location"]
+        order_id = location.split("?", 1)[0].rsplit("/", 1)[1]  # "?new=1" 쿼리를 떼어내야 순수 주문번호
+
+    # get_order_status 도구로 같은 주문을 조회한다
+    domain = _load(modumall_dir_module)
+    tools = make_tools(domain)
+    result = tools["get_order_status"](order_id)
+    assert result["order_id"] == order_id and result["status"] == "결제완료"
