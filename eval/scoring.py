@@ -14,14 +14,37 @@ def norm_num(s) -> str:
     return re.sub(r"(?<=\d),(?=\d)", "", str(s))
 
 
-def score_turn(expect: dict, answer: str, tools_called: list, action: str):
+def score_tools(expect: dict, tools_called: list, action: str):
+    """도구 호출 적절성. 요구사항 원문이 "정확히 일치"이므로 부족분(need - got)만 보던 예전 방식을
+    버리고 **집합 동치**(need == got)로 판정한다 — 관련 없는 도구를 더 부른 것(extra)도 감점된다.
+    이렇게 하면 "필요한 근거를 안 읽음"(missing)과 "관련 없는 근거를 훑음"(extra)이 모두 걸린다.
+
+    action 도 이 지표에 포함시켰다: action 은 "도구를 부를지/에스컬레이션할지"의 판단이고, 이 도메인
+    골든셋은 ESCALATE 기대 케이스의 tools 에 이미 escalate_to_agent 를 넣어 두므로(예: C-013, C-033)
+    "넘겨야 하는데 지어낸 것"은 대개 tools 불일치로도 걸리지만, 우연히 tools 집합은 같은데 action만
+    틀리는 경우(예: 같은 조회 도구를 부르고도 ANSWER 대신 ASK 로 얼버무림)까지 잡으려면 action 도
+    도구 판단의 일부로 봐야 한다는 판단에서다. 답변 내용(must/forbid)은 여기서 보지 않는다 — 그건
+    score_answer(답변 적절성)의 몫이다."""
     fails = []
-    a = norm_num(normalize_korean_myriad(answer))   # "4만 원" 도 40000 으로 비교
+    need, got = set(expect.get("tools", [])), set(tools_called)
+    missing, extra = need - got, got - need
+    if missing:
+        fails.append(f"tools 미호출: {sorted(missing)}")
+    if extra:
+        fails.append(f"tools 과다호출: {sorted(extra)}")
     if expect["action"] != action:
         fails.append(f'action: 기대 {expect["action"]} != 실제 {action}')
-    need = set(expect.get("tools", []))
-    if need - set(tools_called):
-        fails.append(f"tools 미호출: {sorted(need - set(tools_called))}")
+    return (not fails), fails
+
+
+def score_answer(expect: dict, answer: str):
+    """답변 적절성. must(반드시 담아야 할 사실) 전부 포함 + forbid(말하면 안 되는 것) 전부 미포함이면
+    1점. 표현이 아니라 사실을 보도록 숫자 표기(만/천 단위, 쉼표)를 정규화해서 비교한다.
+    ASK 형식 체크(되묻는 문장인지)도 여기 포함한다 — "ASK 인데 안 되묻는 것"은 반드시 취해야 할
+    응답 형태를 안 지킨 것이라 담아야 할 사실을 빠뜨린 것과 같은 성격으로 본다. tools/action 은
+    여기서 보지 않는다 — 그건 score_tools(도구 호출 적절성)의 몫이다."""
+    fails = []
+    a = norm_num(normalize_korean_myriad(answer))   # "4만 원" 도 40000 으로 비교
     for m in expect.get("must", []):
         if norm_num(m) not in a:
             fails.append(f'must 누락: "{m}"')
@@ -31,6 +54,16 @@ def score_turn(expect: dict, answer: str, tools_called: list, action: str):
     if expect["action"] == "ASK" and not re.search(ASK_PATTERN, answer):
         fails.append("ASK 인데 되묻는 문장이 아님")
     return (not fails), fails
+
+
+def score_turn(expect: dict, answer: str, tools_called: list, action: str):
+    """종합 판정. 도구 호출 적절성(score_tools) + 답변 적절성(score_answer) 을 합쳐 하나의
+    pass/fail 로 낸다. 기존 소비자(self_check, eval_regression 등)와의 하위 호환을 위해 남겨 둔다 —
+    두 지표를 각각 보려면 score_tools/score_answer 를 따로 호출한다."""
+    tool_ok, tool_fails = score_tools(expect, tools_called, action)
+    ans_ok, ans_fails = score_answer(expect, answer)
+    fails = tool_fails + ans_fails
+    return (tool_ok and ans_ok), fails
 
 
 def load_first_turns(goldenset_path: Path) -> list[dict]:
@@ -48,10 +81,27 @@ def load_first_turns(goldenset_path: Path) -> list[dict]:
 
 
 def self_check(cases: list[dict]) -> list[str]:
-    """모범 답안(reference)이 채점기를 통과하지 못하면 채점기가 틀린 것이다."""
+    """모범 답안(reference)이 채점기를 통과하지 못하면 채점기가 틀린 것이다.
+    도구 호출 적절성 + 답변 적절성 두 지표 모두를 본다(self_check_split 참고). 하나라도 실패하면
+    이 목록에 잡힌다 — 기존 호출부(eval_answer.py 의 통과 게이트) 호환을 위해 conv_id 리스트로 낸다."""
     return [c["conv_id"] for c in cases
             if not score_turn(c["expect"], c["expect"]["reference"],
                               c["expect"].get("tools", []), c["expect"]["action"])[0]]
+
+
+def self_check_split(cases: list[dict]) -> tuple[list[str], list[str]]:
+    """self_check 를 두 지표로 나눠 본다. 모범 답안을 넣었을 때 두 지표 모두 만점이어야 채점기가
+    맞는 것이다. (도구 호출 적절성 실패 conv_id 목록, 답변 적절성 실패 conv_id 목록) 을 반환한다."""
+    tool_bad, ans_bad = [], []
+    for c in cases:
+        e = c["expect"]
+        tool_ok, _ = score_tools(e, e.get("tools", []), e["action"])
+        ans_ok, _ = score_answer(e, e["reference"])
+        if not tool_ok:
+            tool_bad.append(c["conv_id"])
+        if not ans_ok:
+            ans_bad.append(c["conv_id"])
+    return tool_bad, ans_bad
 
 
 def aggregate_runs(passes: list) -> str:
@@ -90,12 +140,13 @@ def score_regression(expect: dict, answer: str, action: str) -> tuple:
     return (not fails), fails
 
 
-_KIND_PREFIX = (("action:", "action"), ("tools 미호출:", "tools 미호출"), ("must 누락:", "must 누락"),
-                ("forbid 위반:", "forbid 위반"), ("ASK 인데", "ASK 형식"))
+_KIND_PREFIX = (("action:", "action"), ("tools 미호출:", "tools 미호출"), ("tools 과다호출:", "tools 과다호출"),
+                ("must 누락:", "must 누락"), ("forbid 위반:", "forbid 위반"), ("ASK 인데", "ASK 형식"))
 
 
 def fail_kinds(fails: list) -> list:
-    """score_turn 실패 문자열을 사유 종류 5가지로 분류한다. 리포트의 사유 분포에 쓴다."""
+    """score_turn 실패 문자열을 사유 종류로 분류한다(action/tools 미호출/tools 과다호출/must 누락/
+    forbid 위반/ASK 형식). 리포트의 사유 분포에 쓴다."""
     kinds = []
     for f in fails:
         for prefix, kind in _KIND_PREFIX:

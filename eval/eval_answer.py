@@ -6,13 +6,13 @@
 """
 import argparse
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 
 from eval.judge import judge_self_check, judge_turn, make_judge
 from eval.scoring import (aggregate_runs, fail_kinds, infer_action, load_first_turns, missing_must,
-                          needs_judge, score_turn, self_check)
+                          needs_judge, score_answer, score_tools, self_check, self_check_split)
 from server.answer import Answerer
 from server.config import load_settings
 from server.domain import load_domain
@@ -46,7 +46,10 @@ def main():
     domain = load_domain(s.domains_root / (args.domain or s.domain))
     cases = load_first_turns(domain.path / "eval" / "answer_goldenset.json")
     bad = self_check(cases)
-    print(f"[채점기 자기 검증] 모범 답안 {len(cases)}건 중 실패 {len(bad)}건 {bad if bad else '✅'}")
+    tool_bad, ans_bad = self_check_split(cases)
+    print(f"[채점기 자기 검증] 모범 답안 {len(cases)}건 중 실패 {len(bad)}건 {bad if bad else '✅'}"
+          f"  (도구 호출 적절성 실패 {len(tool_bad)}건 {tool_bad or '✅'} /"
+          f" 답변 적절성 실패 {len(ans_bad)}건 {ans_bad or '✅'})")
     if bad:
         raise SystemExit("채점기가 모범 답안을 통과시키지 못했습니다. 채점기부터 고치세요.")
 
@@ -71,37 +74,63 @@ def main():
         for _ in range(args.runs):
             text, results, calls = answerer.answer(case["question"], case["route"])
             action = infer_action(text, results)
-            ok, fails = score_turn(case["expect"], text, list(results), action)
-            how = "규칙" if ok else None
-            if not ok and judge is not None and needs_judge(fails):
+            # 두 지표를 따로 채점한다: 도구 호출 적절성(tool_ok)과 답변 적절성(ans_ok).
+            tool_ok, tool_fails = score_tools(case["expect"], list(results), action)
+            ans_ok, ans_fails = score_answer(case["expect"], text)
+            how = "규칙" if ans_ok else None
+            # judge 는 답변 적절성의 must 누락만 완화한다 — 도구 호출 적절성은 judge 대상이 아니다
+            # (요구사항: "실제로 호출한 도구 집합이 기대 도구와 정확히 일치"는 표현 문제가 아니다).
+            if not ans_ok and judge is not None and needs_judge(ans_fails):
                 with judge_lock:
                     judge_calls[0] += 1
-                v = judge_turn(judge, case["question"], case["expect"], text, missing_must(fails))
+                v = judge_turn(judge, case["question"], case["expect"], text, missing_must(ans_fails))
                 if v.passed:
-                    ok, how = True, "judge"
-                    fails = [f"(judge 통과) {v.reason}"]
+                    ans_ok, how = True, "judge"
+                    ans_fails = [f"(judge 통과) {v.reason}"]
                 else:
-                    fails = fails + [f"judge: {v.reason}"]
-            outs.append({"ok": ok, "how": how, "fails": fails, "action": action, "text": text})
+                    ans_fails = ans_fails + [f"judge: {v.reason}"]
+            ok = tool_ok and ans_ok
+            fails = tool_fails + ans_fails
+            outs.append({"ok": ok, "tool_ok": tool_ok, "ans_ok": ans_ok, "how": how, "fails": fails,
+                         "action": action, "text": text})
         return outs
 
+    # case 별로 끝나는 대로 진행 상황을 stdout 에 흘린다 — 429 로 중간에 죽어도 어디까지 됐는지
+    # 로그 파일에 남아 이어갈 수 있게 한다(429 로 두 번 죽은 전례가 있다).
+    results_by_conv = {}
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        results_per_case = list(ex.map(run, scored))
+        futures = {ex.submit(run, c): c for c in scored}
+        done = 0
+        for fut in as_completed(futures):
+            c = futures[fut]
+            outs = fut.result()
+            results_by_conv[c["conv_id"]] = outs
+            done += 1
+            ok = aggregate_runs([o["ok"] for o in outs]) == "PASS"
+            print(f"[진행 {done}/{len(scored)}] {c['conv_id']} {'PASS' if ok else 'FAIL'}", flush=True)
+    results_per_case = [results_by_conv[c["conv_id"]] for c in scored]
 
     rows = []
     for c, outs in zip(scored, results_per_case):
         verdict = aggregate_runs([o["ok"] for o in outs])
+        tool_verdict = aggregate_runs([o["tool_ok"] for o in outs])
+        ans_verdict = aggregate_runs([o["ans_ok"] for o in outs])
         first = outs[0]
         label, rule_ok = verdict_label(outs)
         rows.append({"conv": c["conv_id"], "기대": c["expect"]["action"], "실제": first["action"],
-                     "ok": verdict == "PASS", "판정": label, "rule_ok": rule_ok,
+                     "ok": verdict == "PASS", "tool_ok": tool_verdict == "PASS", "ans_ok": ans_verdict == "PASS",
+                     "판정": label, "rule_ok": rule_ok,
                      "fails": "; ".join(first["fails"]), "answer": first["text"], "runs": outs})
     res = pd.DataFrame(rows)
     if res.empty:
         print("채점할 항목이 없습니다")
         return
-    print(f'\n채점 {len(res)}건 / 통과 {int(res["ok"].sum())}건 ({100 * res["ok"].mean():.1f}%)'
-          f'   (자동 판정 불가 {len(cases) - len(scored)}건 제외)')
+    n = len(res)
+    tool_n, ans_n = int(res["tool_ok"].sum()), int(res["ans_ok"].sum())
+    print(f'\n[두 지표]  도구 호출 적절성 {tool_n}/{n} ({100 * tool_n / n:.1f}%)'
+          f'   답변 적절성 {ans_n}/{n} ({100 * ans_n / n:.1f}%)')
+    print(f'[종합 통과율 — 기존 지표와 비교용, 두 지표 AND]  통과 {int(res["ok"].sum())}건/{n}건'
+          f' ({100 * res["ok"].mean():.1f}%)   (자동 판정 불가 {len(cases) - len(scored)}건 제외)')
     if args.judge:
         print(f'  규칙 통과율 {int(res["rule_ok"].sum())}/{len(res)}   judge 포함 통과율 {int(res["ok"].sum())}/{len(res)}'
               f'   judge 호출 {judge_calls[0]}회')
