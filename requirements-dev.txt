@@ -1,0 +1,7 @@
+# 개발·평가 전용 의존성. 런타임(server/)에는 필요 없다.
+# 설치: uv pip install --python .venv/bin/python -r requirements.txt -r requirements-dev.txt
+-r requirements.txt
+pandas>=2.2
+scikit-learn>=1.5
+pytest>=8
+httpx>=0.27

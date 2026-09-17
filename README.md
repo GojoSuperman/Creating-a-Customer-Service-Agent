@@ -7,10 +7,14 @@
 
 ```bash
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -r requirements.txt
+uv pip install --python .venv/bin/python -r requirements.txt -r requirements-dev.txt
 cp .env.example .env            # OPENAI_API_KEY 채우기
 .venv/bin/python -m server      # http://127.0.0.1:8000  (크롬 권장, 포트 변경은 PORT=8010)
 ```
+
+`requirements.txt`는 서버 실행에 필요한 런타임 의존성만 담는다. `requirements-dev.txt`는 그 위에
+평가 스크립트(`eval/`)·테스트가 쓰는 `pandas`·`scikit-learn`·`pytest`·`httpx`를 더한다. 서버만
+띄울 거면 `-r requirements.txt`만 설치해도 된다.
 
 `.env`에 실제 `OPENAI_API_KEY`를 입력해야 `python -m server` 실행과 LLM 평가 스크립트가 작동합니다.
 
@@ -19,7 +23,34 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 
 **운영 주의**
 - `pytest` 를 돌리면 `tests/test_generate.py` 가 `domains/modumall/modumall.db` 를 재생성한다(파일 삭제 후 재작성). 데모 서버가 떠 있는 상태에서 테스트를 돌리면 그 서버는 삭제된 파일을 붙든 채 계속 돌아가 화면과 DB 가 어긋나므로(예: 서버가 발급한 주문이 DB 에 없음), 테스트 후에는 서버를 재시작해야 한다.
-- `/shop` 은 비밀번호 없이 전화번호만으로 로그인한다. 번호를 아는 사람은 그 고객의 주문·주소를 전부 볼 수 있으므로, 서버는 `127.0.0.1` 바인딩(기본값)을 유지하고 외부에 노출하지 말 것.
+- `/shop` 은 비밀번호 없이 전화번호만으로 로그인한다. 번호를 아는 사람은 그 고객의 주문·주소를 전부 볼 수 있다. 로컬 개발 시 서버는 `127.0.0.1` 바인딩(기본값)을 유지하고 외부에 노출하지 말 것. (레일웨이 배포는 통화 화면·쇼핑몰을 의도적으로 공개하는 결정이며 아래 "배포(Railway)" 절 참고.)
+
+## 배포(Railway)
+
+데이터는 볼륨 없이 **매 배포마다 초기화**된다. `domains/modumall/modumall.db` 는 기동 시
+`server/domain.py`의 `generate(path)` 가 자동으로 새로 만든다.
+
+**빌드 방식**: 저장소 루트의 `Dockerfile`을 쓴다(레일웨이가 자동 인식하거나 `railway.toml`의
+`builder = "DOCKERFILE"`로 명시). 런타임 의존성만 설치하므로(`requirements.txt`, 평가·테스트
+전용 `pandas`/`scikit-learn`/`pytest`는 제외) 이미지가 가볍다.
+
+**환경변수**
+
+| 변수 | 필수 | 기본값 | 설명 |
+|---|---|---|---|
+| `HOST` | 레일웨이에서 필수 | `127.0.0.1` | 외부 접속을 받으려면 `0.0.0.0`으로 설정. Dockerfile 이 이미 `0.0.0.0`으로 지정해 둔다. |
+| `PORT` | 레일웨이가 자동 주입 | `8000` | 레일웨이가 컨테이너에 주입하는 포트를 그대로 따른다. |
+| `ADMIN_PASSWORD` | 선택 | (없음) | 설정하면 `/admin/*` 전체에 HTTP Basic 인증이 걸린다(사용자명 `admin`, 비밀번호는 이 값). 비워두면 어드민이 무인증으로 열리며 기동 로그에 경고가 남는다. |
+| `OPENAI_API_KEY` | 사실상 필수 | (없음) | 없으면 통화 응답이 동작하지 않는다. 방문자가 각자 키를 넣는 기능은 아직 준비 중이다. |
+| `TTS_MODEL` 등 | 선택 | `.env.example` 참고 | `TTS_MODEL`, `TTS_VOICE`, `ROUTER_MODEL`, `ANSWER_MODEL`, `CONF_THRESHOLD` 등 나머지 값은 로컬과 동일하게 선택 사항이다. |
+
+**보안 범위**: 어드민만 비밀번호로 보호된다. 통화 화면(`/`)과 쇼핑몰(`/shop/*`)은 인증 없이 공개된다
+(위 운영 주의 항목의 로컬 전용 경고는 레일웨이 배포에는 적용되지 않는, 의도된 설계다).
+
+**남는 수동 작업(레일웨이 대시보드)**
+- 프로젝트 생성 후 이 저장소를 연결하고 `HOST=0.0.0.0`, `ADMIN_PASSWORD`, `OPENAI_API_KEY` 등 환경변수를 등록한다.
+- 볼륨을 추가하지 않는다(데이터 초기화가 의도된 동작).
+- 배포 후 `/admin` 접속 시 Basic 인증 프롬프트가 뜨는지, `/`·`/shop`은 그대로 열리는지 확인한다.
 
 ## 구조
 

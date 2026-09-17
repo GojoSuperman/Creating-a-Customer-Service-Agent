@@ -1,16 +1,44 @@
 # -*- coding: utf-8 -*-
 """어드민 조회 화면 라우터. 읽기 전용 — 쓰기 경로가 없다."""
 import datetime
+import os
+import secrets
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
 from server.adminrepo import PAGE_SIZE, AdminRepo
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
+
+_basic_security = HTTPBasic()
+
+
+def _admin_auth_dependency():
+    """ADMIN_PASSWORD 환경변수가 설정돼 있으면 /admin/* 전체에 HTTP Basic 인증을 건다.
+    설정돼 있지 않으면 로컬 개발 편의를 위해 인증 없이 통과시키되 기동 시 경고를 남긴다.
+    사용자명은 고정값 "admin" 을 쓴다."""
+    password = os.environ.get("ADMIN_PASSWORD")
+    if not password:
+        print("[admin] 경고: ADMIN_PASSWORD 가 설정되지 않아 어드민 화면이 인증 없이 열려 있습니다.")
+        return None
+
+    def verify(credentials: HTTPBasicCredentials = Depends(_basic_security)):
+        user_ok = secrets.compare_digest(credentials.username, "admin")
+        pass_ok = secrets.compare_digest(credentials.password, password)
+        if not (user_ok and pass_ok):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="인증 실패",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+        return credentials.username
+
+    return verify
 
 
 def _won(n):
@@ -37,7 +65,9 @@ def admin_router(repo) -> APIRouter:
 
     templates.env.globals["page_url"] = page_url
 
-    router = APIRouter(prefix="/admin")
+    auth = _admin_auth_dependency()
+    dependencies = [Depends(auth)] if auth else []
+    router = APIRouter(prefix="/admin", dependencies=dependencies)
 
     def render(request, name, **ctx):
         return templates.TemplateResponse(request, name, ctx)

@@ -1,0 +1,17 @@
+.git/
+.env
+.env.local
+.venv/
+logs/
+.superpowers/
+domains/*/*.db
+domains/*/*.db-*
+domains/*/*.db.tmp*
+__pycache__/
+*.pyc
+.pytest_cache/
+.bkit/
+tests/
+eval/
+docs/
+requirements-dev.txt

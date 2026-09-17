@@ -1,0 +1,9 @@
+# 레일웨이 배포 설정. Dockerfile 방식을 명시한다(근거는 .superpowers/sdd/railway-deploy-report.md).
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python -m server"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
