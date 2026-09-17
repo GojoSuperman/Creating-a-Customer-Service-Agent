@@ -44,10 +44,12 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 ```bash
 .venv/bin/python -m eval.eval_router --rule      # 규칙 기준선 (키 불필요)
 .venv/bin/python -m eval.eval_router             # LLM 라우터 120건
-.venv/bin/python -m eval.eval_hard --rule        # 어려운 케이스 72건, 되묻기 정책 비교 (키 불필요)
+.venv/bin/python -m eval.eval_hard --rule        # 어려운 케이스 72건, 되묻기 정책 비교 + 임계값×마진 격자 (키 불필요)
 .venv/bin/python -m eval.eval_answer --workers 1 # 정답셋 첫 턴 34건 중 자동 판정 가능한 32건 (--runs 3 플랩 감지; gpt-4.1 TPM 30k 한도라 workers 1 권장)
 .venv/bin/python -m eval.eval_regression --runs 3   # 인젝션·없는 ID 회귀 스위트 (키 필요)
 .venv/bin/python -m eval.eval_context            # 고객 컨텍스트 효과: 비회원 vs 식별된 고객 자동화율 비교 (키 필요)
+.venv/bin/python -m eval.eval_answer --workers 1 --runs 3 --judge   # 규칙 실패의 must 누락 건을 LLM judge 로 재판정 (JUDGE_MODEL)
+.venv/bin/python -m eval.eval_router --multiturn [--no-history]     # 멀티턴 라우트 드리프트 (20대화, 키 필요)
 .venv/bin/pytest -q                              # 단위 테스트 (키 불필요)
 ```
 
@@ -59,6 +61,7 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 | 1 | LLM 라우터 (gpt-4.1-mini) + 답변 gpt-4.1 | 0.945 | 43.8% (14/32, runs=3) | 6/6 PASS ×3회 | 정확도 0.933, ECE 0.039 · hard 72건 자동처리 0.611, 경계모호 15건 전부 확신 처리(위험) |
 | 2 | 검색 동점 버그 수정 · 채점기 만 단위 정규화 · 도구 상한 4 · 주문번호 우선 조회 | 0.945 | 50.0% (16/32, runs=3, FLAP 2) | 6/6 | 남은 실패: 되물어야 할 때 답변 3건, must 문자열 의미 불일치 6건(품절/불가/925), 도구 미호출 6건 |
 | 3 | A단계: SQLite 데이터(상품 180·주문 480) + 발신번호 고객 식별 + 마무리 인사 ASK 오판 수정 | 0.945 | (재측정 예정) | 6/6 | eval_context 40건: 자동화율 비회원 0.350 → 식별 고객 0.450, 되묻기율 0.525 → 0.400, 조회율 0.571 → 0.778 |
+| 4 | 3차 강화: judge 채점기 · 필수 도구 표(부정 결과 → revert) · 확신도 마진 게이트(CONF_MARGIN=0.3) · followup 라우트 이어받기(FOLLOWUP_INHERIT, 기본 꺼짐) · 이관 도구 매핑 · 동의어 보강 | 0.937 | 규칙 50.0% / judge 포함 62.5% (20/32, runs=3, FLAP 2) | 6/6 ×3 | judge 판정기 효과 = 바뀌지 않은 에이전트에 judge 만 붙여 규칙 14/32 → judge 포함 21/32(65.6%). 라우트별 필수 도구 표 + 자기 점검 프롬프트는 부정 결과(규칙 13/32·표만 12/32, 기준선 14/32)라 revert. 경계모호 위험 15 → 10건(Task 4 격자 측정 시점 8건)으로 목표 5건 미달, 격자에 5건 이하 조합이 없음. 멀티턴 문맥 주입은 순효과 −1건(턴2+ 정확도 기준선 0.957 → 0.913)이라 이어받기 기본 꺼짐 |
 
 ## 수동 검증 체크리스트
 
@@ -74,6 +77,8 @@ cp .env.example .env            # OPENAI_API_KEY 채우기
 - 상품명 연결이 토큰 겹침 + 오타 보정 수준이다. 실서비스는 임베딩 검색이 필요하다.
 - 체크포인터는 메모리라 서버 재시작 시 통화가 사라진다.
 - 전화번호만으로 고객을 식별한다(본인 인증 없음). 환불 계좌 변경 같은 민감 처리는 이관으로 뺀다.
+- judge 는 must 누락 건만 보며, rubric·reference 가 틀리면 judge 도 틀린다. 자기 검증(reference 전부 통과)이 그 최소 방어다.
+- 라우터 과신(경계모호 15건이 conf 0.7~0.9)이 마진 게이트의 한계이며, 남은 8건은 2순위 확신도 유도 프롬프트나 경계모호 전용 신호가 필요하다.
 - 음성 인식은 크롬·엣지의 Web Speech API에 의존한다. 음성 합성은 기본이 브라우저 음성(무료)이며, 엣지에서는 "Online (Natural)" 계열 한국어 음성을 자동으로 고른다. `TTS_MODEL=gpt-4o-mini-tts`를 설정하면 화면에서 OpenAI 음성(유료)을 선택할 수 있다.
 
 모델명은 날짜 고정 버전을 쓰는 것이 안전하다(`ROUTER_MODEL=gpt-4.1-mini-2025-04-14` 처럼). 제공사가 별칭의 가중치를 조용히 바꾸면 회귀 스위트로만 알 수 있다.
