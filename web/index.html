@@ -73,8 +73,11 @@
   <iframe id="link-modal-frame" class="link-modal-frame" title="링크 미리보기"></iframe>
 </dialog>
 <dialog id="settings-modal" class="settings-modal">
+  <div class="link-modal-head">
+    <span class="link-modal-title">OpenAI 키 설정</span>
+    <button type="button" id="settings-modal-close" class="link-modal-close" title="닫기" aria-label="닫기">✕</button>
+  </div>
   <form method="dialog" class="settings-form">
-    <h3>OpenAI 키 설정</h3>
     <p class="settings-hint">이 키는 이 브라우저에만 저장되고 서버·DB·로그에 남지 않습니다.</p>
     <label class="settings-field">
       <span>OpenAI API 키</span>

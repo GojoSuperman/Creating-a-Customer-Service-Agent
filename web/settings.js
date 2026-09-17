@@ -33,6 +33,7 @@ export function createSettings() {
   const btnOpen = document.getElementById("btn-settings");
   const btnCheck = document.getElementById("btn-key-check");
   const btnClear = document.getElementById("btn-key-clear");
+  const btnClose = document.getElementById("settings-modal-close");
   const form = dialog.querySelector("form");
 
   function setStatus(text, kind) {
@@ -56,6 +57,9 @@ export function createSettings() {
   }
 
   btnOpen.onclick = () => open();
+
+  // 입력 중이던 키는 저장하지 않고 닫는다 (저장은 "저장" 버튼/Enter로만 한다).
+  btnClose.onclick = () => dialog.close();
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
