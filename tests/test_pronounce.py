@@ -51,10 +51,40 @@ def test_tracking_and_phone_are_read_digit_by_digit():
     assert "공일공" in to_speech("010-3711-0062 로 연락드립니다")
 
 
+@pytest.mark.parametrize("raw, spoken", [
+    # 식별자 뒤에 조사가 바로 붙는 실제 통화 패턴 (한글은 \w 라 \b 가 경계로 안 잡힘)
+    ("주문번호 O-1072는 어떻게 되나요", "주문번호 오 일공칠이는 어떻게 되나요"),
+    ("010-3711-0062로 연락드립니다", "공일공 삼칠일일 공공육이로 연락드립니다"),
+    ("송장번호 621312907791이며 확인됩니다", "송장번호 육이일삼일이구공칠칠구일이며 확인됩니다"),
+    ("2026-08-24에 출고됩니다", "8월 24일에 출고됩니다"),
+    ("가슴 106cm입니다", "가슴 106센티미터입니다"),
+])
+def test_rules_fire_before_trailing_korean_particle(raw, spoken):
+    """조사가 식별자·단위에 바로 붙는 경우(실제 통화의 기본형)에도 규칙이 발동해야 한다."""
+    assert to_speech(raw) == spoken
+
+
 def test_size_letters():
     assert to_speech("L 사이즈는 가슴 112cm") == "엘 사이즈는 가슴 112센티미터"
     assert to_speech("2XL 까지 있습니다") == "투엑스엘 까지 있습니다"
     assert to_speech("브라 80A 선택 시") == "브라 80에이 선택 시"
+
+
+def test_size_letters_does_not_touch_after_service_abbreviation():
+    """"A/S"(애프터서비스)는 사이즈 표기가 아니므로 건드리지 않는다."""
+    assert to_speech("제조사 A/S 관련 문의입니다") == "제조사 A/S 관련 문의입니다"
+
+
+def test_bra_cup_sizes_b_to_d_are_read():
+    assert to_speech("75B 사이즈 있어요?") == "75비 사이즈 있어요?"
+    assert to_speech("80C, 85D 순으로 확인해주세요") == "80씨, 85디 순으로 확인해주세요"
+
+
+def test_month_and_per_unit_are_not_misread_as_count():
+    """"3개월"은 "삼 개월"(그대로 두면 TTS 가 맞게 읽음)이지 "세 개월"이 아니다."""
+    assert to_speech("보증기간은 3개월입니다") == "보증기간은 3개월입니다"
+    assert to_speech("1개당 500원 추가됩니다") == "1개당 500원 추가됩니다"
+    assert to_speech("3개 남았습니다") == "세 개 남았습니다"  # 진짜 수량은 그대로 변환
 
 
 def test_is_idempotent():
@@ -108,3 +138,15 @@ def test_no_catalog_falls_back_to_plain_rules():
 def test_product_name_substitution_is_idempotent():
     once = to_speech("14K 도금 커프 링 2 3개 주문하셨습니다", product_names=CATALOG)
     assert to_speech(once, product_names=CATALOG) == once
+
+
+def test_product_name_substitution_is_idempotent_without_material_prefix():
+    """"14K" 가 없는 이름(예: "데님 머플러 2")도 멱등해야 한다.
+    이름이 이미 변환된 뒤("데님 머플러 2번")에도 그 이름이 부분 문자열로 남아 있어
+    str.replace 를 그대로 쓰면 두 번째 호출에서 "2번번" 이 되는 회귀가 있었다."""
+    once = to_speech("데님 머플러 2 3개 주문하셨습니다", product_names=CATALOG)
+    assert "머플러 2번" in once
+    assert "번번" not in once
+    twice = to_speech(once, product_names=CATALOG)
+    assert twice == once
+    assert "번번" not in twice

@@ -23,6 +23,13 @@ NATIVE = {1: "한", 2: "두", 3: "세", 4: "네", 5: "다섯", 6: "여섯", 7: "
 UNITS = [("mm", "밀리미터"), ("cm", "센티미터"), ("ml", "밀리리터"), ("kg", "킬로그램")]
 ABBREV = [("SPF", "에스피에프"), ("PU", "피유")]
 SIZE_LETTERS = [("2XL", "투엑스엘"), ("XL", "엑스엘"), ("S", "에스"), ("M", "엠"), ("L", "엘")]
+# 브라 컵 사이즈(75A~85D 등) 알파벳 표기
+_CUP_KO = {"A": "에이", "B": "비", "C": "씨", "D": "디"}
+# 뒤쪽 경계용: 파이썬 정규식은 한글도 \w 로 보기 때문에 "…에" 같은 조사가 바로
+# 붙으면 \b 가 경계로 인식되지 않아 매칭이 안 된다(예: "O-1072는", "106cm입니다").
+# 그래서 영문·숫자가 더 이어지는 경우만 막는 부정 전방탐색을 대신 쓴다.
+_NOT_ALNUM = r"(?![0-9A-Za-z])"
+
 
 def _digits_to_ko(s: str) -> str:
     return "".join(DIGITS.get(c, c) for c in s)
@@ -58,7 +65,7 @@ def _ids(text: str) -> str:
     def repl(m):
         letter, digits = m.group(1), m.group(2)
         return f"{ID_PREFIX[letter]} {_digits_to_ko(digits)}"
-    return re.sub(r"\b([ORCP])-?(\d{3,5})\b", repl, text)
+    return re.sub(rf"\b([ORCP])-?(\d{{3,5}}){_NOT_ALNUM}", repl, text)
 
 
 def _long_digits(text: str) -> str:
@@ -69,9 +76,9 @@ def _long_digits(text: str) -> str:
         parts = digits.split("-")
         return " ".join(_digits_to_ko(p) for p in parts)
 
-    text = re.sub(r"\b\d{2,3}-\d{3,4}-\d{4}\b", phone_sub, text)
+    text = re.sub(rf"\b\d{{2,3}}-\d{{3,4}}-\d{{4}}{_NOT_ALNUM}", phone_sub, text)
     # 10자리 이상 연속 숫자(송장번호 등)
-    text = re.sub(r"\b\d{10,}\b", lambda m: _digits_to_ko(m.group(0)), text)
+    text = re.sub(rf"\b\d{{10,}}{_NOT_ALNUM}", lambda m: _digits_to_ko(m.group(0)), text)
     return text
 
 
@@ -92,8 +99,9 @@ def _iso_datetime(text: str, today: datetime.date | None = None) -> str:
         prefix = f"{year}년 " if year != today.year else ""
         return f"{prefix}{month}월 {day}일"
 
-    text = re.sub(r"\b(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):\d{2}\b", repl_datetime, text)
-    text = re.sub(r"\b(\d{4})-(\d{2})-(\d{2})\b", repl_date, text)
+    text = re.sub(rf"\b(\d{{4}})-(\d{{2}})-(\d{{2}})T(\d{{2}}):(\d{{2}}):\d{{2}}{_NOT_ALNUM}",
+                  repl_datetime, text)
+    text = re.sub(rf"\b(\d{{4}})-(\d{{2}})-(\d{{2}}){_NOT_ALNUM}", repl_date, text)
     return text
 
 
@@ -103,18 +111,18 @@ def _alnum_material(text: str) -> str:
     text = re.sub(r"\b925(?=\s*실버)", lambda m: _digits_to_ko(m.group(0)), text)
     # NNK → 한자어 수사+케이 (14K 같은 캐럿 표기. 숫자+영문자 조합은 TTS 가 자릿수
     # 그대로 읽어 "일사케이"가 되므로, 미리 한글 수사로 풀어 쓴다)
-    text = re.sub(r"\b(\d+)K\b", lambda m: _sino_number(int(m.group(1))) + "케이", text)
+    text = re.sub(rf"\b(\d+)K{_NOT_ALNUM}", lambda m: _sino_number(int(m.group(1))) + "케이", text)
     # 약어(SPF, PU 등)
     for abbr, ko in ABBREV:
-        text = re.sub(rf"\b{abbr}\b", ko, text)
-    # NN알파벳 (사이즈: 80A → 80에이) — cm/mm/ml/kg 단위는 제외
-    text = re.sub(r"\b(\d+)A\b", r"\1에이", text)
+        text = re.sub(rf"\b{abbr}{_NOT_ALNUM}", ko, text)
+    # NN알파벳 (브라 사이즈: 75B·80A 등 A~D 컵 → 80에이) — cm/mm/ml/kg 단위는 제외
+    text = re.sub(rf"\b(\d+)([A-D]){_NOT_ALNUM}", lambda m: m.group(1) + _CUP_KO[m.group(2)], text)
     return text
 
 
 def _units(text: str) -> str:
     for unit, ko in UNITS:
-        text = re.sub(rf"(?<=\d){unit}\b", ko, text)
+        text = re.sub(rf"(?<=\d){unit}{_NOT_ALNUM}", ko, text)
     return text
 
 
@@ -123,9 +131,11 @@ def _percent(text: str) -> str:
 
 
 def _size_letters(text: str) -> str:
-    """단독으로 쓰인 S·M·L·XL·2XL 을 한글로. 주변에 공백/문장부호가 있는 경우만."""
+    """단독으로 쓰인 S·M·L·XL·2XL 을 한글로. 주변에 공백/문장부호가 있는 경우만.
+    단 "A/S"(애프터서비스) 처럼 슬래시로 붙은 표기는 사이즈가 아니므로 건드리지
+    않는다(앞뒤에 "/" 가 바로 붙은 경우는 제외)."""
     for letter, ko in SIZE_LETTERS:
-        text = re.sub(rf"(?<![A-Za-z0-9]){re.escape(letter)}(?![A-Za-z0-9])", ko, text)
+        text = re.sub(rf"(?<![A-Za-z0-9/]){re.escape(letter)}(?![A-Za-z0-9/])", ko, text)
     return text
 
 
@@ -139,26 +149,31 @@ def _counts(text: str) -> str:
     # 뒤 경계(\b)는 걸지 않는다 — "개" 뒤에 한글 조사("까지" 등)가 바로 붙으면
     # 한글은 \w 로 취급돼 단어 경계가 생기지 않기 때문이다. 대신 앞은 숫자가
     # 아닌 문자 뒤(전체 숫자를 다 집었는지)를 확인해 다자릿수 일부만 집지 않게 한다.
-    return re.sub(r"(?<!\d)(\d{1,2})개", repl, text)
+    # "개월"·"개당" 처럼 "개"가 다른 단어의 일부인 경우는 수량이 아니므로 제외한다
+    # (한국어 관행은 "3개월"→"삼 개월" 이지 "세 개월" 이 아니다).
+    return re.sub(r"(?<!\d)(\d{1,2})개(?![월당])", repl, text)
 
 
 def _product_numbers(text: str, product_names: list[str] | None) -> str:
-    """상품명 끝 숫자는 수량이 아니라 품번이다. 긴 이름부터 치환해 부분 일치를 막는다."""
+    """상품명 끝 숫자는 수량이 아니라 품번이다. 긴 이름부터 치환해 부분 일치를 막는다.
+
+    주의(멱등성): `name` 자체가 이미 변환된 문장(끝에 "번"이 붙은 상태) 안에도
+    부분 문자열로 남아 있다("데님 머플러 2" 는 "데님 머플러 2번" 의 접두부다).
+    그래서 단순 `str.replace` 를 쓰면 두 번째 호출에서 "2번번" 이 된다.
+    `(?!번)` 로 이미 "번" 이 붙은 자리는 건너뛰어 멱등을 보장한다.
+    """
     if not product_names:
         return text
     # 중복 제거 후 이름 길이 내림차순
     names = sorted(set(product_names), key=len, reverse=True)
     for name in names:
+        m = re.search(r"(\d+)$", name)
+        if not m:
+            continue  # 끝에 숫자가 없는 이름은 품번 표기가 필요 없다
         if name not in text:
             continue
-        m = re.search(r"(\d+)$", name)
-        if m:
-            spoken_name = name[: m.start()] + m.group(1) + "번"
-        else:
-            spoken_name = name
-        if spoken_name == name:
-            continue  # 바뀌는 게 없으면 건너뛴다(멱등성 유지)
-        text = text.replace(name, spoken_name)
+        spoken_name = name[: m.start()] + m.group(1) + "번"
+        text = re.sub(re.escape(name) + r"(?!번)", lambda mm, s=spoken_name: s, text)
     return text
 
 
