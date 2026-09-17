@@ -61,8 +61,7 @@ async function startCall() {
                                              headers: { "Content-Type": "application/json", ...settings.headers() },
                                              body: JSON.stringify({ phone }) }).then(r => r.json());
   if (gen !== state.gen) return;
-  panel.setCustomer(r.customer || null, r.profile || null);
-  dbPanel.setCustomer(r.customer || null);
+  dbPanel.setCustomer(r.customer || null, r.profile || null);
   state.callId = r.call_id; state.startedAt = Date.now();
   clearInterval(state.timer);
   state.timer = setInterval(() => {
