@@ -43,23 +43,33 @@ export function dedupeVoices(voices) {
 // 목록에 표시할 이름을 구분되게 만든다. 이름이 유일하면 이름만 그대로 보여 주고,
 // 같은 이름이 여러 개면 언어 태그·로컬/온라인 구분을 붙이고, 그래도 같으면 순번을 붙인다.
 // voices 와 같은 길이·순서의 라벨 배열을 반환한다 (voices[i] 의 라벨은 labelVoices(voices)[i]).
+// 브라우저가 붙인 음성 이름 자체가 어색한 경우를 바로잡는 표시용 치환 표.
+// 음성 식별(voiceURI)에는 쓰지 않고, 화면에 보여 줄 이름에만 적용한다.
+// 표에 없는 이름은 추측하지 않고 그대로 둔다.
+const VOICE_NAME_FIXES = {
+  "Google 한국의": "Google 한국어",
+};
+function displayName(name) { return VOICE_NAME_FIXES[name] || name; }
+
 export function labelVoices(voices) {
   const list = voices || [];
   const byName = new Map();
   for (const v of list) {
-    const arr = byName.get(v.name) || [];
+    const dn = displayName(v.name);
+    const arr = byName.get(dn) || [];
     arr.push(v);
-    byName.set(v.name, arr);
+    byName.set(dn, arr);
   }
   const labelByKey = new Map();
   for (const group of byName.values()) {
     if (group.length === 1) {
-      labelByKey.set(voiceKey(group[0]), group[0].name);
+      labelByKey.set(voiceKey(group[0]), displayName(group[0].name));
       continue;
     }
     const bases = group.map((v) => {
       const svc = v.localService ? "로컬" : "온라인";
-      return v.lang ? `${v.name} (${svc} · ${v.lang})` : `${v.name} (${svc})`;
+      const dn = displayName(v.name);
+      return v.lang ? `${dn} (${svc} · ${v.lang})` : `${dn} (${svc})`;
     });
     const baseCount = new Map();
     for (const b of bases) baseCount.set(b, (baseCount.get(b) || 0) + 1);
