@@ -111,8 +111,8 @@ def shop_router(repo, domain) -> APIRouter:
         return RedirectResponse(path, status_code=303)
 
     def sample_customers():
-        """데모용 예시 고객 3명 (이름·전화)."""
-        return get_shop().sample_customers(limit=3)
+        """데모용 예시 고객 10명 (이름·전화). 개수는 ShopRepo.sample_customers 기본값이 정한다."""
+        return get_shop().sample_customers()
 
     # ── 상품 ────────────────────────────────────────────
     @router.get("", response_class=HTMLResponse)

@@ -29,7 +29,7 @@ form.add-to-cart{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-
 form.add-to-cart label{display:flex;gap:6px;align-items:center;color:var(--muted)}
 .error{color:var(--bad)}
 .samples{margin-top:20px;color:var(--muted)}
-.samples ul{list-style:none;padding:0}
+.samples ul{list-style:none;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0 16px}
 .samples li{padding:4px 0}
 .paging{display:flex;gap:12px;align-items:center;margin-top:16px}
 .empty{color:var(--muted)}
