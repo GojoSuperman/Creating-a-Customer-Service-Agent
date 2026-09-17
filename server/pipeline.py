@@ -518,9 +518,15 @@ class Pipeline:
         """상담원 패널 전용. 주소·전화 등을 포함하므로 답변 프롬프트(self.customers)와는 분리해 둔다."""
         return self.repo.customer_profile(customer_id)
 
+    # 드롭다운 한 줄이 터지지 않도록 힌트에 보여줄 상태 종류 수 상한(넘으면 나머지는 생략).
+    _HINT_STATUS_CAP = 3
+
     def _sample_entry(self, c: dict) -> dict:
-        active = [o["status"] for o in self.repo.recent_orders(c["customer_id"], 3) if o["status"] not in self.repo.IN_PROGRESS_EXCLUDED]
-        return {"name": c["name"], "phone": c["phone"], "hint": "·".join(dict.fromkeys(active)) or None}
+        # 최근 N건이 아니라 그 고객의 "진행 중 주문 전체"를 본다 — 진행 중 주문이 4번째 이후로
+        # 밀려도(다른 완료된 주문이 더 최근이어도) 힌트에서 빠지면 안 된다.
+        active = [o["status"] for o in self.repo.in_progress_orders(c["customer_id"])]
+        statuses = list(dict.fromkeys(active))[:self._HINT_STATUS_CAP]
+        return {"name": c["name"], "phone": c["phone"], "hint": "·".join(statuses) or None}
 
     def sample_customers(self, n: int = 20) -> list[dict]:
         """통화 화면 드롭다운에 쓸 고객 전체 목록(기본값 n=20 은 도메인 고객 총원과 같다 — 쇼핑몰에서

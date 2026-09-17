@@ -392,6 +392,38 @@ def test_sample_customers_carry_hint_and_profile(domain, settings):
     assert "address" not in cust                      # 프롬프트용 고객 dict 는 그대로 주소 없음
 
 
+def test_sample_entry_hint_finds_in_progress_order_beyond_top_three(domain, settings, tmp_path):
+    """결함 고정: hint 가 최근 3건이 아니라 진행 중 주문 전체를 봐야 한다. 4번째로 밀린
+    진행 중 주문(배송중)도 hint 에 나와야 한다. 공유 DB 를 건드리지 않도록 별도 파일
+    SQLite 를 시드한다(tests/test_shoprepo.py 의 memory_shop 패턴을 따름)."""
+    import dataclasses
+    import sqlite3
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    db_path = tmp_path / "hint_defect.db"
+    con = sqlite3.connect(str(db_path))
+    con.executescript((root / "server" / "db" / "schema.sql").read_text(encoding="utf-8"))
+    con.executescript("""
+        insert into customers values ('C-9001','밀린고객','010-9000-0001','수도권','서울시 1','2024-01-01');
+        insert into orders (order_id,customer_id,ordered_at,status,order_amount,shipping_fee)
+          values
+            ('O-9001','C-9001','2026-09-10T10:00:00','배송완료',10000,0),
+            ('O-9002','C-9001','2026-09-05T10:00:00','배송완료',10000,0),
+            ('O-9003','C-9001','2026-09-03T10:00:00','배송완료',10000,0),
+            ('O-9004','C-9001','2026-08-01T10:00:00','배송중',10000,0);
+    """)
+    con.commit()
+    con.close()
+
+    test_domain = dataclasses.replace(domain, db_path=db_path)
+    p = Pipeline(test_domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=FakeAnswerer([]))
+    from server.repo import Repo
+    c = Repo(db_path).customer("C-9001")
+    entry = p._sample_entry(c)
+    assert entry["hint"] == "배송중"   # 4번째 주문(가장 오래됐지만 유일한 진행 중 상태)이 힌트에 나와야 한다
+
+
 def test_turn_result_carries_alt_route(domain, settings):
     classify = lambda q: RouteDecision(route="PRODUCT_INFO", confidence=0.9, reason="t",
                                        route_alt="ORDER_PLACE", alt_confidence=0.3)

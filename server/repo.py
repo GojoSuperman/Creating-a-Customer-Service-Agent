@@ -85,6 +85,14 @@ class Repo:
 
     IN_PROGRESS_EXCLUDED = ("배송완료", "반품완료", "교환완료", "취소")
 
+    def in_progress_orders(self, cid):
+        """그 고객의 진행 중 주문 전부(최신순). 통화 드롭다운 힌트(_sample_entry)가 최근 N건이
+        아니라 진행 중 주문 전체를 봐야 해서 recent_orders(limit) 와 별도로 둔다."""
+        placeholders = ",".join("?" * len(self.IN_PROGRESS_EXCLUDED))
+        return self._all(f"""select order_id,ordered_at,status from orders
+                             where customer_id=? and status not in ({placeholders})
+                             order by ordered_at desc""", cid, *self.IN_PROGRESS_EXCLUDED)
+
     def customer_profile(self, cid, limit=5):
         """상담원 화면용 고객 프로필. 주소·전화 등 개인정보를 포함하므로 프롬프트에는 넣지 않는다.
         orders 는 최신순이며, 진행 중(배송완료가 아닌) 주문에는 배송 이력(events)과 반품 단계(return_)를 붙인다."""
