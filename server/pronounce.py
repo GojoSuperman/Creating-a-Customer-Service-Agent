@@ -98,7 +98,7 @@ def _iso_datetime(text: str, today: datetime.date | None = None) -> str:
 
 
 def _alnum_material(text: str) -> str:
-    """14K→"십사케이"(숫자는 그대로 두고 K 만 "케이"), 925 실버→"구이오 실버", 80A→"80에이"."""
+    """14K→"십사케이"(숫자를 한자어 수사로 풀어쓰고 K 는 "케이"), 925 실버→"구이오 실버", 80A→"80에이"."""
     # 925 실버 → 구이오 실버 (자릿수 그대로 읽는 소재 표기, "실버" 앞에서만)
     text = re.sub(r"\b925(?=\s*실버)", lambda m: _digits_to_ko(m.group(0)), text)
     # NNK → 한자어 수사+케이 (14K 같은 캐럿 표기. 숫자+영문자 조합은 TTS 가 자릿수
