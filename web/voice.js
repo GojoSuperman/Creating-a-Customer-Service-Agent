@@ -14,6 +14,39 @@ export function preferredVoice(koVoices) {
 }
 export function rememberVoice(v) { try { localStorage.setItem(VOICE_PREF_KEY, v.name); } catch (_) {} }
 
+// 음성 목록 안정 식별자: voiceURI 가 없으면 name+lang 으로 대체한다 (배열 인덱스는 목록이
+// 바뀌면 어긋나므로 쓰지 않는다).
+export function voiceKey(v) { return v.voiceURI || `${v.name}|${v.lang}`; }
+
+// 엣지는 UA 에 "Chrome" 이 포함돼 있어 "Edg/" 를 먼저 확인해야 한다.
+function isChromeUA(ua) {
+  if (!ua) return false;
+  if (/Edg\//.test(ua)) return false;
+  return /Chrome\//.test(ua);
+}
+
+// 실제로 소리가 나는 음성만 추린다.
+// - localService === true (로컬 설치 음성) 는 어느 브라우저에서나 재생된다 → 항상 남긴다.
+// - localService === false (원격 음성) 는 크롬에서만 재생된다. 엣지 등에서는 목록에만
+//   있고 무음이라 뺀다.
+// - name+lang 이 같은 중복 항목은 하나만 남기고, 로컬 음성을 먼저 정렬한다.
+// - 거른 결과가 비면(전부 원격인데 크롬이 아닌 경우 등) 무음보다는 원래 목록을 그대로 돌려준다.
+export function usableVoices(voices, ua) {
+  const ko = (voices || []).filter(v => v.lang && v.lang.toLowerCase().startsWith("ko"));
+  const seen = new Set();
+  const deduped = [];
+  for (const v of ko) {
+    const key = `${v.name}|${v.lang}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(v);
+  }
+  deduped.sort((a, b) => (a.localService === b.localService) ? 0 : (a.localService ? -1 : 1));
+  const chrome = isChromeUA(ua);
+  const filtered = deduped.filter(v => v.localService || chrome);
+  return filtered.length ? filtered : deduped;
+}
+
 const KO_DIGITS = "공일이삼사오육칠팔구";
 const LETTER_KO = { O: "오", R: "알", P: "피" };
 export function speakable(text) {
@@ -33,9 +66,8 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
   let audio = null;              // 서버 TTS 재생용
 
   function pickVoice() {
-    const all = synth ? synth.getVoices() : [];
-    const ko = all.filter(v => v.lang && v.lang.toLowerCase().startsWith("ko"));
-    return preferredVoice(ko) || ko[0] || all[0] || null;
+    const ko = synth ? usableVoices(synth.getVoices(), navigator.userAgent) : [];
+    return preferredVoice(ko) || ko[0] || null;
   }
   if (synth) {
     voice = pickVoice();
@@ -72,7 +104,7 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
 
   const api = {
     get supported() { return { recognition: !!SR, synthesis: !!synth }; },
-    listVoices() { return synth ? synth.getVoices().filter(v => v.lang.toLowerCase().startsWith("ko")) : []; },
+    listVoices() { return synth ? usableVoices(synth.getVoices(), navigator.userAgent) : []; },
     setVoice(v) { voice = v; },
     setMode(m) { mode = m === "server" ? "server" : "browser"; },
     get mode() { return mode; },

@@ -1,5 +1,5 @@
 // 전화 상태 머신. IDLE → RINGING → SPEAKING ⇄ LISTENING → THINKING → ... → ENDED
-import { createVoice, preferredVoice, rememberVoice } from "./voice.js";
+import { createVoice, preferredVoice, rememberVoice, voiceKey } from "./voice.js";
 import { createPanel } from "./panel.js";
 import { createDbPanel } from "./dbpanel.js";
 import { createSettings } from "./settings.js";
@@ -175,7 +175,10 @@ $("text-form").onsubmit = (e) => {
   sendTurn(t);
 };
 $("engine-select").onchange = (e) => { voice.setMode(e.target.value); $("voice-select").disabled = e.target.value === "server"; };
-$("voice-select").onchange = (e) => { const v = voice.listVoices()[e.target.value]; if (v) { voice.setVoice(v); rememberVoice(v); } };
+$("voice-select").onchange = (e) => {
+  const v = voice.listVoices().find(v => voiceKey(v) === e.target.value);
+  if (v) { voice.setVoice(v); rememberVoice(v); }
+};
 
 // 초기화
 (async () => {
@@ -195,12 +198,18 @@ $("voice-select").onchange = (e) => { const v = voice.listVoices()[e.target.valu
   if (!voice.supported.recognition) enableTextOnly("이 브라우저는 음성 인식을 지원하지 않습니다. 크롬 또는 엣지를 권장합니다.");
   const fill = () => {
     const vs = voice.listVoices();
-    const pref = preferredVoice(vs);
-    const cur = pref ? vs.indexOf(pref) : 0;
-    if (pref) voice.setVoice(pref);
+    let pref = preferredVoice(vs);
+    if (!pref && vs.length) pref = vs[0];   // 저장된 선호 음성이 걸러진 목록에 없으면 첫 번째(로컬)로 대체
+    if (pref) { voice.setVoice(pref); rememberVoice(pref); }
     // 표시 이름 정리: 크롬 내장 음성 "Google 한국의" 는 "Google" 로 보여 준다 (음성은 동일)
     const label = (v) => /^google/i.test(v.name) ? "Google" : v.name;
-    $("voice-select").innerHTML = vs.map((v, i) => `<option value="${i}" ${i === cur ? "selected" : ""}>${label(v)}</option>`).join("");
+    $("voice-select").innerHTML = vs.map((v) =>
+      `<option value="${esc(voiceKey(v))}" ${v === pref ? "selected" : ""}>${esc(label(v))}</option>`).join("");
+    // 거르지 못하고 원격 음성이 그대로 남아 있으면(예: 엣지에서 로컬 음성이 없는 경우) 안내 문구를 붙인다
+    const ua = navigator.userAgent;
+    const isChrome = /Edg\//.test(ua) ? false : /Chrome\//.test(ua);
+    $("voice-select").title = (!isChrome && vs.some(v => v.localService === false))
+      ? "일부 음성은 소리가 나지 않을 수 있습니다" : "";
   };
   fill(); if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = fill;
   setPhase("IDLE");
