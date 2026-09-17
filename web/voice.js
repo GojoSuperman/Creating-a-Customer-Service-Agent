@@ -97,6 +97,64 @@ export function speakable(text) {
   });
 }
 
+// TTS 재생 전 선행 무음 길이(ms). 절전 상태로 들어간 출력 장치(특히 블루투스 스피커)가
+// 오디오 스트림을 받고 깨어나는 데 걸리는 시간을 벌어, 말소리 첫 음절이 잘리지 않게 한다.
+// 너무 길면 응답이 굼떠 보이므로 필요한 만큼만 짧게 잡는다. 사용자가 들어보고 조절 가능.
+const LEAD_SILENCE_MS = 350;
+// 완전한 디지털 0 무음은 일부 OS·블루투스 스택이 "재생할 소리 없음"으로 판단해 절전 중인
+// 장치를 깨우지 않는 경우가 있다. 그래서 사람 귀에는 들리지 않는 수준의 아주 작은 진폭을
+// 채워 "소리가 나고 있다"고 인식시킨다.
+const LEAD_SILENCE_GAIN = 0.0005;
+
+// AudioContext 는 브라우저별로 생성 개수에 제한이 있어 모듈 전체에서 하나만 만들어 재사용한다.
+let sharedAudioCtx = null;
+function getAudioCtx() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!sharedAudioCtx) {
+    try { sharedAudioCtx = new Ctx(); } catch (_) { return null; }
+  }
+  return sharedAudioCtx;
+}
+
+// 선행 무음을 재생한다. { promise, cancel } 을 반환하며 promise 는 무음 재생이 끝나거나
+// (AudioContext 부재·resume 실패 등으로) 건너뛰거나 cancel() 로 중단되면 resolve 된다.
+// 실패해도 절대 reject 하지 않는다 — 무음 재생 실패가 TTS 자체를 막아서는 안 되기 때문이다.
+function playLeadSilence() {
+  const ctx = getAudioCtx();
+  if (!ctx) return { promise: Promise.resolve(), cancel: () => {} };
+  let cancelled = false;
+  let source = null;
+  const run = async () => {
+    if (ctx.state === "suspended") {
+      // 사용자 제스처 전에는 브라우저 자동재생 정책으로 suspended 일 수 있다.
+      // resume 이 실패하면 무음을 포기하고 조용히 말소리로 넘어간다.
+      try { await ctx.resume(); } catch (_) { return; }
+    }
+    if (cancelled || ctx.state !== "running") return;
+    await new Promise((resolve) => {
+      const frames = Math.max(1, Math.round(ctx.sampleRate * (LEAD_SILENCE_MS / 1000)));
+      const buffer = ctx.createBuffer(1, frames, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = LEAD_SILENCE_GAIN;
+      source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.onended = resolve;
+      if (cancelled) { try { source.stop(); } catch (_) {} return; }
+      source.start();
+    });
+  };
+  const promise = run().catch(() => {});
+  return {
+    promise,
+    cancel: () => {
+      cancelled = true;
+      if (source) { try { source.stop(); } catch (_) {} }
+    },
+  };
+}
+
 export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHeaders = () => ({}) } = {}) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const synth = window.speechSynthesis;
@@ -105,6 +163,18 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
   let voice = null;
   let mode = "browser";          // "browser" | "server"
   let audio = null;              // 서버 TTS 재생용
+  let leadSilenceCancel = null;  // 재생 중인 선행 무음의 cancel() — stop() 이 즉시 끊을 때 쓴다.
+
+  // 선행 무음을 재생하고 끝날 때까지 기다린다. stop() 이 무음 재생 도중 불리면 false 를
+  // 반환하므로, 호출부는 이때 말소리를 시작하지 않아야 한다(무음 뒤에 뒤늦게 말이 나오는 것 방지).
+  async function playLeadSilenceGate() {
+    let cancelled = false;
+    const { promise, cancel } = playLeadSilence();
+    leadSilenceCancel = () => { cancelled = true; cancel(); };
+    await promise;
+    leadSilenceCancel = null;
+    return !cancelled;
+  }
 
   function pickVoice() {
     const ko = synth ? dedupeVoices(synth.getVoices()) : [];
@@ -136,6 +206,8 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
       mode = "server";
       return p;
     }
+    const ok = await playLeadSilenceGate();
+    if (!ok) { URL.revokeObjectURL(url); return; }   // stop() 이 무음 재생 도중 호출됨 — 말소리를 시작하지 않는다
     await new Promise((resolve) => {
       audio = new Audio(url);
       audio.onended = () => { URL.revokeObjectURL(url); audio = null; resolve(); };
@@ -149,9 +221,11 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
     get supported() { return { recognition: !!SR, synthesis: !!synth }; },
     listVoices() { return synth ? dedupeVoices(synth.getVoices()) : []; },
     // 미리듣기: 현재 선택과 무관하게 지정한 음성으로 짧은 문장을 읽는다.
-    previewVoice(v) {
-      if (!synth || !v) return Promise.resolve();
+    async previewVoice(v) {
+      if (!synth || !v) return;
       synth.cancel();
+      const ok = await playLeadSilenceGate();
+      if (!ok) return;
       return new Promise((resolve) => {
         const u = new SpeechSynthesisUtterance("안녕하세요, 모두몰 고객센터입니다.");
         u.lang = v.lang || lang;
@@ -191,11 +265,13 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
 
     // { pronounced: true } 는 서버가 이미 낭독용으로 변환한 문장(/api/call/start·turn 의
     // speech 필드)이라는 뜻 — speakable() 의 식별자 자릿수 읽기를 다시 적용하지 않는다.
-    speak(text, { pronounced = false } = {}) {
+    async speak(text, { pronounced = false } = {}) {
       if (mode === "server") return speakServer(text, pronounced);
+      if (!synth || !text) return;
+      synth.cancel();
+      const ok = await playLeadSilenceGate();
+      if (!ok) return;   // stop() 이 무음 재생 도중 호출됨 — 말소리를 시작하지 않는다
       return new Promise((resolve) => {
-        if (!synth || !text) return resolve();
-        synth.cancel();
         const u = new SpeechSynthesisUtterance(pronounced ? text : speakable(text));
         u.lang = lang;
         if (voice) u.voice = voice;
@@ -209,6 +285,7 @@ export function createVoice({ lang = "ko-KR", onInterim = () => {}, getExtraHead
 
     stop() {
       if (rec) { try { rec.abort(); } catch (_) {} rec = null; }
+      if (leadSilenceCancel) { leadSilenceCancel(); leadSilenceCancel = null; }
       if (synth) synth.cancel();
       currentUtter = null;
       if (audio) { try { audio.pause(); } catch (_) {} audio = null; }
