@@ -2,7 +2,7 @@ import pytest
 from server.config import Settings
 from server.domain import load_domain
 from server.router import RouteDecision, build_router
-from server.pipeline import Pipeline, infer_action, should_inherit
+from server.pipeline import Pipeline, classify_call_ending, infer_action, should_inherit
 
 
 @pytest.fixture
@@ -769,6 +769,106 @@ def test_confirm_question_no_more_stays_in_normal_flow(domain, settings):
 
     assert r.end_call is False
     assert r.answer == "네, 확인해 드리겠습니다."  # 답변기가 실제로 불렸다(종료 판정에 가로채이지 않음)
+
+
+# ── 부정어 가드: containment 매칭이 정반대 뜻을 종료로 잡지 않게 ──────────────
+
+_CLOSING_QUESTION = "추가로 궁금하신 점 있으실까요?"
+
+
+@pytest.mark.parametrize("text", [
+    "안 괜찮아요", "안괜찮아요", "아직 안 됐어요", "하나도 안 괜찮아요",
+    "괜찮지 않아요", "전혀 괜찮지 않아요",
+])
+def test_negated_soft_phrase_is_not_ending(text):
+    """부정어가 붙은 SOFT 문구('안 괜찮아요' 등)는 정반대 뜻이므로 판정 없음이어야 한다."""
+    assert classify_call_ending(text, _CLOSING_QUESTION) is None
+
+
+@pytest.mark.parametrize("text", ["안 끊을게요", "아직 안 들어가세요"])
+def test_negated_hard_phrase_is_not_ending(text):
+    """HARD 군도 같은 containment 함정이 있다 — 부정어가 붙으면 통화를 끊으면 안 된다."""
+    assert classify_call_ending(text, _CLOSING_QUESTION) is None
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("없습니다", "SOFT"), ("괜찮아요", "SOFT"), ("됐어요", "SOFT"),
+    ("알겠습니다", "SOFT"), ("수고하세요", "HARD"),
+])
+def test_ordinary_ending_phrases_still_classify(text, expected):
+    """부정어 가드를 넣은 뒤에도 정상 케이스(회귀 방지)는 그대로 유지되어야 한다."""
+    assert classify_call_ending(text, _CLOSING_QUESTION) == expected
+
+
+def test_negated_soft_phrase_stays_in_normal_flow_end_to_end(domain, settings):
+    """파이프라인 단에서도 '안 괜찮아요'가 종결 질문 뒤에 와도 판정에 가로채이지 않는다."""
+    ans = FakeAnswerer([
+        ("사은품이 있었다면 함께 보내주셔야 합니다. 추가로 궁금하신 점 있으실까요?", {}, []),
+        ("어떤 점이 불편하셨는지 여쭤봐도 될까요?", {}, []),
+    ])
+    p = Pipeline(domain, settings, router=router_with(domain, "RETURN_REFUND", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "반품하고 싶어요")
+    r = p.turn(cid, "안 괜찮아요")
+
+    assert r.end_call is False
+    assert r.answer == "어떤 점이 불편하셨는지 여쭤봐도 될까요?"  # 답변기가 실제로 불렸다
+
+
+# ── 결함 1: "들어가세요" 부분 포함 매칭이 정상 질문을 HARD 로 오판 ──────────────
+
+@pytest.mark.parametrize("text,prev", [
+    ("재입고 언제 들어가세요", "배송은 2~3일 소요됩니다."),
+    ("그 상품 언제 들어가세요", "배송은 2~3일 소요됩니다."),
+    ("환불 언제 들어가세요", _CLOSING_QUESTION),
+])
+def test_ordinary_question_with_farewell_substring_is_not_hard(text, prev):
+    """'들어가세요'가 뒤에 실려 있어도, 앞에 실제 질문 내용이 남아 있으면 통화를 끊지 않는다."""
+    assert classify_call_ending(text, prev) is None
+
+
+# ── 결함 2: 종결 질문 패턴이 너무 넓어 확인용 되묻기까지 SOFT 로 삼킴 ────────────
+
+@pytest.mark.parametrize("prev,text", [
+    ("주문하신 다른 번호 있으세요?", "없어요"),
+    ("주문하신 다른 번호 있으세요?", "아니요"),
+    ("주문하신 다른 번호 있으세요?", "아직 없어요"),
+    ("혹시 교환하실 상품 사진 있으신가요?", "없어요"),
+    ("하자가 있으실까요?", "없어요"),
+])
+def test_confirm_question_negation_stays_in_normal_flow(prev, text):
+    """맨몸 '있으실까요/있으신가요/있으세요/있으십니까'는 되묻기에도 다 걸린다 —
+    종결 의미어(더/추가로/또/다른 + 궁금/문의/필요/도와 등)와 함께 올 때만 종결 질문."""
+    assert classify_call_ending(text, prev) is None
+
+
+def test_confirm_question_negation_reaches_router_end_to_end(domain, settings):
+    """파이프라인 단에서도 '있으세요?' 류 되묻기 뒤 '없어요'는 답변기로 정상 전달된다."""
+    ans = FakeAnswerer([
+        ("주문하신 다른 번호 있으세요?", {}, []),
+        ("네, 확인해 드리겠습니다.", {}, []),
+    ])
+    p = Pipeline(domain, settings, router=router_with(domain, "ORDER_PLACE", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "주문 확인하고 싶어요")
+    r = p.turn(cid, "없어요")
+
+    assert r.end_call is False
+    assert r.answer == "네, 확인해 드리겠습니다."
+
+
+# ── 결함 3: 앞 토막만 맞아도 판정되어 새 용건이 통째로 버려짐 ──────────────────
+
+@pytest.mark.parametrize("text,prev", [
+    ("감사합니다 근데 하나만 더요", "배송은 2~3일 소요됩니다."),
+    ("알겠습니다 그런데 배송은요", "배송은 2~3일 소요됩니다."),
+    ("확인했어요 근데 다른 주문은요", "배송은 2~3일 소요됩니다."),
+    ("고생하셨습니다 근데요", "배송은 2~3일 소요됩니다."),
+])
+def test_trailing_new_business_after_ending_phrase_is_not_classified(text, prev):
+    """종료 표현 뒤에 새 용건이 이어지면(앞 토막만 일치) 판정하지 않는다 — 발화 전체가
+    종료 표현과 같아야 한다."""
+    assert classify_call_ending(text, prev) is None
 
 
 def test_closing_question_then_confirm_does_not_end_call(domain, settings):

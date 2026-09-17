@@ -105,6 +105,12 @@ const LEAD_SILENCE_MS = 350;
 // 장치를 깨우지 않는 경우가 있다. 그래서 사람 귀에는 들리지 않는 수준의 아주 작은 진폭을
 // 채워 "소리가 나고 있다"고 인식시킨다.
 const LEAD_SILENCE_GAIN = 0.0005;
+// 탭이 백그라운드로 가거나 오디오 장치가 끊기면 AudioContext 가 멈춰서 source.onended
+// 콜백이 영영 안 올 수 있다(예: 브라우저가 백그라운드 탭의 오디오 타이머를 조절/정지).
+// 그러면 이 promise 가 안 풀려 speak() 전체가 SPEAKING 상태에 고착된다. LEAD_SILENCE_MS
+// 보다 넉넉한 타임아웃을 걸어 무조건 resolve 되게 한다(무음 재생 실패는 말소리를 막지
+// 않는다는 원칙과 동일한 이유).
+const LEAD_SILENCE_TIMEOUT_MS = 3000;
 
 // AudioContext 는 브라우저별로 생성 개수에 제한이 있어 모듈 전체에서 하나만 만들어 재사용한다.
 let sharedAudioCtx = null;
@@ -140,7 +146,8 @@ function playLeadSilence() {
       source = ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(ctx.destination);
-      source.onended = resolve;
+      const timeout = setTimeout(resolve, LEAD_SILENCE_TIMEOUT_MS);
+      source.onended = () => { clearTimeout(timeout); resolve(); };
       if (cancelled) { try { source.stop(); } catch (_) {} return; }
       source.start();
     });

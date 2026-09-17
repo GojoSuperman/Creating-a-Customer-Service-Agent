@@ -33,6 +33,17 @@ export function createStatsPanel(root) {
     const ms = Number(r.elapsed_ms) || 0;
     stats.sumMs += ms;
     if (ms > stats.maxMs) stats.maxMs = ms;
+
+    // "통화 종료 발화" 판정 턴(server/pipeline.py classify_call_ending)은 라우터·답변기를
+    // 아예 부르지 않아 route=null, tools=[], guardrail=null 로 온다. 이걸 다른 축과 같이
+    // 집계하면 라우트 분포에 "OTHER"가 늘고, "도구 호출 없이 답변"(능력 축 경고)이 매번
+    // 뜨는 것처럼 부풀려진다 — 둘 다 실제 라우팅·답변 실패가 아니므로 총 턴 수(누적)에만
+    // 반영하고 아래 축 집계에서는 건너뛴다.
+    if (r.route == null && r.action === "ANSWER") {
+      render();
+      return;
+    }
+
     const route = r.route || "OTHER";
     stats.routes[route] = (stats.routes[route] || 0) + 1;
 

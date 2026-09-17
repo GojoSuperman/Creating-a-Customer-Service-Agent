@@ -18,7 +18,11 @@
       <span>{% if t.get('confidence') is not none %}확신도 {{ "%.2f" | format(t.get('confidence')) }}{% else %}확신도 기록 없음{% endif %}</span>
       <span>{{ t.action or "-" }}</span>
       <span>도구: {{ t.tools | join(", ") if t.tools else "없음" }}</span>
+      {% if t.get('end_call') is not none %}
+      <span>가드레일 검사 없음 (통화 종료 발화 판정 — LLM 미호출)</span>
+      {% else %}
       <span class="{{ 'ok' if t.guardrail_ok else 'bad' }}">가드레일 {{ "통과" if t.guardrail_ok else "위반/기록없음" }}</span>
+      {% endif %}
     </div>
   </li>
   {% else %}

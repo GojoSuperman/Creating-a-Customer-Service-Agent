@@ -71,12 +71,13 @@ _ENDING_MAX_LEN = 15  # 선행 필러·공백을 정리한 뒤에도 이 길이�
 _ENDING_FILLER_PREFIX = re.compile(r"^(?:[아어음그예네뭐]+[,.\s]+)+")
 
 # 상담원 답변이 "종결 질문"으로 끝났는지 — 되묻기·확인 질문과 구분해야 한다("사은품
-# 있으셨나요?" 뒤의 "없어요"는 종료가 아니라 되묻기 응답이다). 기존 CLOSING_PATTERN
-# (더/추가로/또/다른 + 궁금/문의/필요/도와) 에 "있으실까요/있으신가요/있으세요/있으십니까",
-# "더 도와드릴", "언제든 말씀", "편하게 말씀", "다른 문의" 류를 더한다.
+# 있으셨나요?", "다른 번호 있으세요?", "하자가 있으실까요?" 뒤의 "없어요"는 종료가
+# 아니라 되묻기 응답이다). 그래서 "있으실까요/있으신가요/있으세요/있으십니까"를 맨몸으로
+# 넣지 않는다 — 그건 임의의 되묻기에도 다 걸린다. 종결 의미어(더/추가로/또/다른 +
+# 궁금/문의/필요/도와, 또는 "더 도와드릴/언제든 말씀/편하게 말씀/다른 문의")와 함께 올
+# 때만 종결 질문으로 본다.
 _CLOSING_QUESTION_PATTERN = (
     r"(?:더|추가로|또|다른)\s*(?:궁금|문의|필요|도와)"
-    r"|있으실까요|있으신가요|있으세요|있으십니까"
     r"|더\s*도와드릴|언제든\s*말씀|편하게\s*말씀|다른\s*문의"
 )
 
@@ -114,14 +115,29 @@ _ENDING_HARD_FAREWELLS = (
 )
 
 
+# 부분 문자열 포함 매칭은 위험하다 — 목록 문구가 발화 어디에 박혀 있든 걸려버려서
+# "언제 들어가세요"(정상 질문) 가 "들어가세요"(작별) 로, "안 괜찮아요"(불만) 가
+# "괜찮아요"(수용) 로, "감사합니다 근데 하나만 더요"(새 용건) 가 "감사합니다"(수용)로
+# 오판된다. 그래서 core 가 목록 문구와 "공백만 무시하고 완전히 같을 때"만 매칭한다 —
+# 앞뒤로 다른 내용이 남아 있으면 매칭하지 않는다. 어미 변이(알겠어요/알겠네요 등)는
+# 목록에 변이별로 다 적어 두는 방식으로 허용한다(정규식 형태소 분석 대신).
 def _ending_core(text: str) -> str:
-    """선행 필러를 지우고 공백을 정규화한, 매칭용 문자열."""
+    """공백만 정규화한 매칭용 문자열(필러 제거 없음)."""
+    return re.sub(r"\s+", "", text.strip())
+
+
+def _ending_core_defillered(text: str) -> str:
+    """공백·쉼표로 구분된 선행 필러(아/어/음/그/예/네/뭐)를 지운 뒤 공백을 정규화한다.
+    "그렇군요"처럼 필러 글자로 시작하지만 뒤에 구분자 없이 바로 이어지는 단어는 건드리지
+    않는다(필러 뒤에 공백·쉼표·마침표가 실제로 있을 때만 지운다) — 그런 단어는 애초에
+    _ending_core 단계에서 이미 목록과 완전히 같은지로 판정된다."""
     core = _ENDING_FILLER_PREFIX.sub("", text.strip())
     return re.sub(r"\s+", "", core)
 
 
-def _nospace_any(core: str, phrases: tuple[str, ...]) -> bool:
-    return any(re.sub(r"\s+", "", p) in core for p in phrases)
+def _matches_any(core: str, phrases: tuple[str, ...]) -> bool:
+    """core 가 phrases 중 하나와 (공백 무시하고) 완전히 같은가 — 부분 포함이 아니다."""
+    return core in {re.sub(r"\s+", "", p) for p in phrases}
 
 
 def classify_call_ending(text: str, prev_answer: Optional[str]) -> Optional[str]:
@@ -135,15 +151,20 @@ def classify_call_ending(text: str, prev_answer: Optional[str]) -> Optional[str]
         return None
     if "?" in text or re.search(ASK_PATTERN, text):
         return None
-    core = _ending_core(text)
-    if not core or len(core) > _ENDING_MAX_LEN:
-        return None
-    if _nospace_any(core, _ENDING_HARD_FAREWELLS):
-        return "HARD"
-    if _nospace_any(core, _ENDING_SOFT_ACCEPTANCES):
-        return "SOFT"
-    if re.search(_CLOSING_QUESTION_PATTERN, prev_answer) and _nospace_any(core, _ENDING_SOFT_NEGATIONS):
-        return "SOFT"
+    is_closing_question = bool(re.search(_CLOSING_QUESTION_PATTERN, prev_answer))
+    # 필러를 지우기 전(발화 그대로)과 지운 뒤, 두 형태 모두 "완전 일치"로만 본다.
+    # 필러 제거본을 따로 두는 건 "음, 알겠습니다" 같은, 목록에 다 적어 두지 않은
+    # 조합까지 잡기 위해서다 — "그렇군요"처럼 필러 글자로 시작하는 단어 자체는
+    # 필러 제거 단계에서 안 건드리므로 첫 번째(원문) 패스에서 이미 그대로 걸린다.
+    for core in (_ending_core(text), _ending_core_defillered(text)):
+        if not core or len(core) > _ENDING_MAX_LEN:
+            continue
+        if _matches_any(core, _ENDING_HARD_FAREWELLS):
+            return "HARD"
+        if _matches_any(core, _ENDING_SOFT_ACCEPTANCES):
+            return "SOFT"
+        if is_closing_question and _matches_any(core, _ENDING_SOFT_NEGATIONS):
+            return "SOFT"
     return None
 
 
