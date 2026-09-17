@@ -137,3 +137,32 @@ def test_missing_id_returns_html_404(client, path):
     assert r.status_code == 404
     assert "text/html" in r.headers["content-type"]
     assert "찾을 수 없습니다" in r.text
+
+
+def test_html_escapes_customer_name(modumall_dir):
+    """고객 이름에 스크립트가 들어 있어도 그대로 렌더되지 않는다 (인메모리 DB, 공유 DB 미사용)."""
+    domain = load_domain(modumall_dir)
+    con = sqlite3.connect(":memory:", check_same_thread=False)
+    con.row_factory = sqlite3.Row
+    con.executescript((modumall_dir.parent.parent / "server" / "db" / "schema.sql").read_text(encoding="utf-8"))
+    con.execute("insert into customers values (?,?,?,?,?,?)",
+                ("C-XSS", "<script>alert(1)</script>", "010-0000-0000", "서울", "서울시", "2026-01-01"))
+    con.commit()
+
+    fake_pipeline = FakePipelineWithRepo.__new__(FakePipelineWithRepo)
+    fake_pipeline.repo = type("R", (), {"con": con})()
+    xss_client = TestClient(create_app(fake_pipeline, domain))
+    r = xss_client.get("/admin/customers")
+    assert r.status_code == 200
+    assert "<script>alert(1)</script>" not in r.text
+    assert "&lt;script&gt;" in r.text
+
+
+def test_admin_modules_have_no_write_sql():
+    """어드민은 읽기 전용이다 — 쓰기 SQL 키워드가 없어야 한다."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    for name in ("server/adminrepo.py", "server/admin.py"):
+        src = (root / name).read_text(encoding="utf-8").lower()
+        assert not re.search(r"\b(insert|update|delete|drop|alter)\s+", src), name

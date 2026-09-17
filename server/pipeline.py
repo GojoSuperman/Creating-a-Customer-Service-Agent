@@ -380,7 +380,8 @@ class Pipeline:
         end = action in ("ESCALATE", "OUT_OF_SCOPE")
         g = out.get("guardrail")
         self.turn_logs.setdefault(call_id, []).append({
-            "q": text, "route": out.get("route"), "action": action,
+            "q": text, "a": out["answer"], "route": out.get("route"),
+            "confidence": out.get("confidence"), "action": action,
             "tools": [t["name"] for t in (out.get("tools") or [])],
             "guardrail_ok": g.get("ok") if g else None,
             "followup": out.get("is_followup", False),

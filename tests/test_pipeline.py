@@ -553,6 +553,18 @@ def test_escalate_tool_error_string_is_ignored(domain, settings):
     assert p.turn(cid, "O-1001 어디쯤이에요?").end_call is False
 
 
+def test_turn_log_records_answer_and_confidence(domain, settings):
+    ans = FakeAnswerer([("기준은 100,000원이라 41,000원이 부족합니다.",
+                         {"get_shipping_policy": {"free_shipping_threshold": 100000, "shortfall": 41000}},
+                         [{"name": "get_shipping_policy", "args": {"product_id": "P4001"}}])])
+    p = Pipeline(domain, settings, router=router_with(domain, "SHIPPING", 0.9), answerer=ans)
+    cid, _, _ = p.start_call()
+    r = p.turn(cid, "P4001 무료배송 되나요?")
+    logged = p.turn_logs[cid][-1]
+    assert logged["a"] == r.answer
+    assert logged["confidence"] == r.confidence
+
+
 def test_should_inherit_when_enabled_and_prev_ok():
     assert should_inherit(True, True, "SHIPPING", False) is True
 
