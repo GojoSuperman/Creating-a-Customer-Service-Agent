@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """① 의도 분류 평가.  .venv/bin/python -m eval.eval_router [--limit N] [--rule] [--domain modumall]
-멀티턴: .venv/bin/python -m eval.eval_router --multiturn [--no-history]"""
+멀티턴: .venv/bin/python -m eval.eval_router --multiturn [--no-history]
+5클래스(OTHER 포함, eval+outscope 153건): .venv/bin/python -m eval.eval_router --with-other"""
 import argparse
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +17,7 @@ from server.pipeline import compose_router_input, should_inherit
 from server.router import build_router, make_llm_classifier, make_rule_classifier
 
 LABELS4 = [r for r in ROUTES if r != "OTHER"]
+LABELS5 = list(ROUTES)  # OTHER 포함 5클래스 — --with-other 전용, 기존 LABELS4 경로는 그대로 둔다
 
 
 def load_multiturn(path: Path) -> list:
@@ -62,6 +64,8 @@ def main():
     ap.add_argument("--multiturn", action="store_true", help="멀티턴 라우트셋으로 드리프트 보정을 잰다")
     ap.add_argument("--no-history", action="store_true", help="--multiturn 기준선: 직전 문의·라우트 없이 단일 발화로")
     ap.add_argument("--inherit", action="store_true", help="--multiturn 에서 후속 발화가 직전 라우트를 이어받게 한다 (런타임 FOLLOWUP_INHERIT=1)")
+    ap.add_argument("--with-other", action="store_true",
+                     help="OTHER 를 포함한 5클래스로 측정한다 (eval+outscope 153건). 옵트인 — 기본 4클래스 동작은 그대로다")
     args = ap.parse_args()
 
     s = load_settings()
@@ -92,9 +96,11 @@ def main():
     inq = pd.read_csv(ev_dir / "customer_inquiries.csv", encoding="utf-8-sig")
     ans = pd.read_csv(ev_dir / "routing_answers.csv", encoding="utf-8-sig")
     ev = inq.merge(ans, on="qa_id")
-    ev = ev[ev["split"] == "eval"].reset_index(drop=True)
+    splits = ["eval", "outscope"] if args.with_other else ["eval"]
+    ev = ev[ev["split"].isin(splits)].reset_index(drop=True)
     if args.limit:
         ev = ev.head(args.limit)
+    labels = LABELS5 if args.with_other else LABELS4
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         states = list(ex.map(lambda q: graph.invoke({"question": q}), ev["question"].tolist()))
@@ -102,11 +108,12 @@ def main():
     y = ev["route"].tolist()
 
     name = "규칙 라우터" if args.rule else f"LLM 라우터 ({s.router_model})"
-    print(f"[{name}] n={len(ev)}  정확도 {accuracy_score(y, pred):.3f}  "
-          f"macro F1 {f1_score(y, pred, labels=LABELS4, average='macro', zero_division=0):.3f}\n")
-    print(classification_report(y, pred, labels=LABELS4, digits=3, zero_division=0))
+    tag = " +OTHER 5클래스" if args.with_other else ""
+    print(f"[{name}{tag}] n={len(ev)}  정확도 {accuracy_score(y, pred):.3f}  "
+          f"macro F1 {f1_score(y, pred, labels=labels, average='macro', zero_division=0):.3f}\n")
+    print(classification_report(y, pred, labels=labels, digits=3, zero_division=0))
     print("[혼동 행렬] 행=정답, 열=예측")
-    print(pd.DataFrame(confusion_matrix(y, pred, labels=LABELS4), index=LABELS4, columns=LABELS4).to_string())
+    print(pd.DataFrame(confusion_matrix(y, pred, labels=labels), index=labels, columns=labels).to_string())
     miss = [(r["question"], r["route"], p, st["confidence"]) for (_, r), p, st in zip(ev.iterrows(), pred, states) if r["route"] != p]
     print(f"\n[오분류 {len(miss)}건] — 여기를 읽는 것이 개선의 출발점이다")
     for q, g, p, c in miss:
