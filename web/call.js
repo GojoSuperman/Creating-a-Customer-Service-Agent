@@ -1,12 +1,14 @@
 // 전화 상태 머신. IDLE → RINGING → SPEAKING ⇄ LISTENING → THINKING → ... → ENDED
 import { createVoice, preferredVoice, rememberVoice } from "./voice.js";
 import { createPanel } from "./panel.js";
+import { createDbPanel } from "./dbpanel.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const state = { phase: "IDLE", callId: null, startedAt: null, turns: 0, textOnly: false, timer: null, gen: 0, busy: false };
 const voice = createVoice({ onInterim: (t) => { $("interim").textContent = t; } });
 const panel = createPanel($("panel"));
+const dbPanel = createDbPanel();
 
 function setPhase(p) {
   state.phase = p;
@@ -47,6 +49,7 @@ async function startCall() {
                                              body: JSON.stringify({ phone }) }).then(r => r.json());
   if (gen !== state.gen) return;
   panel.setCustomer(r.customer || null, r.profile || null);
+  dbPanel.setCustomer(r.customer || null);
   state.callId = r.call_id; state.startedAt = Date.now();
   clearInterval(state.timer);
   state.timer = setInterval(() => {

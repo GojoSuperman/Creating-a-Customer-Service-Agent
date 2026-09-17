@@ -56,6 +56,15 @@ def test_home_shows_summary_numbers(client):
     assert "진행중 주문" in r.text and "오늘 통화" in r.text and "반품 단계" in r.text
 
 
+def test_nav_call_screen_link_targets_top(client):
+    # 통화 화면 링크는 조회 패널 iframe 안에서 눌려도 그 프레임 안에 중첩되지 않도록 target="_top" 이어야 한다.
+    # 다른 nav 링크는 iframe 안에서 그대로 탐색되어야 하므로 target 이 없어야 한다.
+    r = client.get("/admin")
+    assert '<a class="right" href="/" target="_top">통화 화면</a>' in r.text
+    assert 'href="/admin/orders" target=' not in r.text
+    assert 'href="/admin/customers" target=' not in r.text
+
+
 def test_orders_filter_keeps_querystring_in_paging_links(client):
     r = client.get("/admin/orders", params={"status": "배송중", "page": 1})
     assert r.status_code == 200
@@ -104,6 +113,23 @@ def test_customer_detail_page(client):
     assert r.status_code == 200
     assert f"<h1>{name}</h1>" in r.text
     assert "/admin/orders/" in r.text
+
+
+def test_customer_detail_embed_hides_nav(client):
+    # 조회 패널의 "현재 고객" iframe 은 embed=1 로 호출되며, 이때는 nav 를 숨긴다.
+    # 기본 호출(embed 파라미터 없음)에는 영향이 없어야 한다.
+    listing = client.get("/admin/orders", params={"page": 1})
+    m = re.search(r'/admin/customers/(C-\d+)">', listing.text)
+    assert m, "주문 목록에 고객 링크가 없음"
+    cid = m.group(1)
+
+    normal = client.get(f"/admin/customers/{cid}")
+    assert normal.status_code == 200
+    assert 'class="nav"' in normal.text
+
+    embedded = client.get(f"/admin/customers/{cid}", params={"embed": "1"})
+    assert embedded.status_code == 200
+    assert 'class="nav"' not in embedded.text
 
 
 def test_call_detail_page(modumall_dir):
