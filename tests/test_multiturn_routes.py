@@ -37,13 +37,24 @@ def test_route_conversation_passes_prev_route_and_history(modumall_dir):
 
 def test_route_conversation_inherits_route_on_followup(modumall_dir):
     domain = load_domain(modumall_dir)
-    # 턴1 확신도 0.9 → 게이트 통과(HANDLE) → 턴2 는 후속 발화이므로 직전 라우트를 이어받는다
+    # inherit=True 이고 턴1 확신도 0.9 → 게이트 통과(HANDLE) → 턴2 는 후속 발화이므로 직전 라우트를 이어받는다
     decisions = iter([RouteDecision(route="SHIPPING", confidence=0.9, reason="t"),
                       RouteDecision(route="PRODUCT_INFO", confidence=0.8, reason="t", is_followup=True)])
     g = build_router(domain, 0.5, classify=lambda q: next(decisions))
     turns = [{"text": "a", "route": "SHIPPING", "followup": False}, {"text": "b", "route": "SHIPPING", "followup": True}]
-    preds = route_conversation(g, turns)
+    preds = route_conversation(g, turns, inherit=True)
     assert preds[1]["route"] == "SHIPPING"
+
+
+def test_route_conversation_default_no_inherit(modumall_dir):
+    domain = load_domain(modumall_dir)
+    # 기본값 inherit=False — 이어받기 없이 라우터가 낸 라우트를 그대로 쓴다(is_followup 은 기록만)
+    decisions = iter([RouteDecision(route="SHIPPING", confidence=0.9, reason="t"),
+                      RouteDecision(route="PRODUCT_INFO", confidence=0.8, reason="t", is_followup=True)])
+    g = build_router(domain, 0.5, classify=lambda q: next(decisions))
+    turns = [{"text": "a", "route": "SHIPPING", "followup": False}, {"text": "b", "route": "PRODUCT_INFO", "followup": True}]
+    preds = route_conversation(g, turns)
+    assert preds[1]["route"] == "PRODUCT_INFO" and preds[1]["is_followup"] is True
 
 
 def test_route_conversation_does_not_inherit_from_gated_turn(modumall_dir):
@@ -53,7 +64,7 @@ def test_route_conversation_does_not_inherit_from_gated_turn(modumall_dir):
                       RouteDecision(route="PRODUCT_INFO", confidence=0.8, reason="t", is_followup=True)])
     g = build_router(domain, 0.5, classify=lambda q: next(decisions))
     turns = [{"text": "a", "route": "SHIPPING", "followup": False}, {"text": "b", "route": "PRODUCT_INFO", "followup": True}]
-    preds = route_conversation(g, turns)
+    preds = route_conversation(g, turns, inherit=True)
     assert preds[1]["route"] == "PRODUCT_INFO" and preds[1]["is_followup"] is True
 
 

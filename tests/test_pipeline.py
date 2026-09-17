@@ -17,6 +17,14 @@ def settings(tmp_path, modumall_dir):
                     logs_dir=tmp_path / "logs", clarify_max=1)
 
 
+@pytest.fixture
+def settings_inherit(tmp_path, modumall_dir):
+    """FOLLOWUP_INHERIT=1 — 후속 발화가 직전 라우트를 이어받는 설정(기본은 꺼짐)."""
+    return Settings(router_model="x", answer_model="x", conf_threshold=0.5, max_tool_turns=3,
+                    guardrail_retry=1, domain="modumall", domains_root=modumall_dir.parent,
+                    logs_dir=tmp_path / "logs", clarify_max=1, followup_inherit=True)
+
+
 class FakeAnswerer:
     def __init__(self, script):
         self.script = list(script)   # [(text, results, calls), ...]
@@ -418,7 +426,7 @@ class ScriptedRouter:
         return self.graph.invoke(state)
 
 
-def test_followup_inherits_previous_route(domain, settings):
+def test_followup_inherits_previous_route(domain, settings_inherit):
     router = ScriptedRouter(domain, [
         RouteDecision(route="SHIPPING", confidence=0.9, reason="t"),
         RouteDecision(route="PRODUCT_INFO", confidence=0.8, reason="t", is_followup=True),
@@ -426,7 +434,7 @@ def test_followup_inherits_previous_route(domain, settings):
     ans = FakeAnswerer([("2,500원입니다.", {"get_shipping_policy": {}}, []),
                         ("무료배송 기준은 100,000원입니다.",
                          {"get_shipping_policy": {"free_shipping_threshold": 100000}}, [])])
-    p = Pipeline(domain, settings, router=router, answerer=ans)
+    p = Pipeline(domain, settings_inherit, router=router, answerer=ans)
     cid, _, _ = p.start_call()
     p.turn(cid, "캔버스화 배송비 얼마예요?")
     r = p.turn(cid, "그럼 무료배송은요?")
@@ -435,23 +443,24 @@ def test_followup_inherits_previous_route(domain, settings):
     assert "[직전 라우트]" not in router.inputs[0]
 
 
-def test_followup_does_not_inherit_other_route(domain, settings):
+def test_followup_does_not_inherit_other_route(domain, settings_inherit):
     # 직전 라우트가 OTHER 면 이어받지 않고 라우터가 낸 현재 라우트를 쓴다
     router = ScriptedRouter(domain, [
         RouteDecision(route="OTHER", confidence=0.9, reason="t"),
         RouteDecision(route="SHIPPING", confidence=0.8, reason="t", is_followup=True),
     ])
     ans = FakeAnswerer([("2,500원입니다.", {"get_shipping_policy": {}}, [])])
-    p = Pipeline(domain, settings, router=router, answerer=ans)
+    p = Pipeline(domain, settings_inherit, router=router, answerer=ans)
     cid, _, _ = p.start_call()
     r1 = p.turn(cid, "홍대점 몇 시까지 해요?")
     assert r1.action == "OUT_OF_SCOPE"
     r2 = p.turn(cid, "아 그럼 배송비는요?")
-    assert r2.route == "SHIPPING" and r2.is_followup is False
+    # 이어받지 않았으므로 route 는 라우터가 낸 SHIPPING. is_followup 은 라우터 원값이라 True 로 기록된다.
+    assert r2.route == "SHIPPING" and r2.is_followup is True
     assert "[직전 라우트] OTHER" in router.inputs[1]
 
 
-def test_ask_turn_is_recorded_in_routes(domain, settings):
+def test_ask_turn_is_recorded_in_routes(domain, settings_inherit):
     # 게이트 미달(확신도 0.2)로 되묻게 된 턴의 라우트는 "추측"이다. 라우터 입력에는 계속 알려 주지만
     # (모델이 문맥을 보도록), 그 추측을 후속 발화의 상속 앵커로 쓰지는 않는다 — 거부된 판단을
     # 다음 턴에서 확정 라우트로 세탁하는 셈이 되기 때문이다.
@@ -460,16 +469,17 @@ def test_ask_turn_is_recorded_in_routes(domain, settings):
         RouteDecision(route="PRODUCT_INFO", confidence=0.9, reason="t", is_followup=True),
     ])
     ans = FakeAnswerer([("네 확인했습니다.", {"get_shipping_policy": {}}, [])])
-    p = Pipeline(domain, settings, router=router, answerer=ans)
+    p = Pipeline(domain, settings_inherit, router=router, answerer=ans)
     cid, _, _ = p.start_call()
     r1 = p.turn(cid, "그거요")
     assert r1.action == "ASK"
     r2 = p.turn(cid, "배송 문의요")
     assert "[직전 라우트] SHIPPING" in router.inputs[1]
-    assert r2.route == "PRODUCT_INFO" and r2.is_followup is False
+    # 이어받지 않았으므로 route 는 라우터가 낸 PRODUCT_INFO. is_followup 은 라우터 원값이라 True 로 기록된다.
+    assert r2.route == "PRODUCT_INFO" and r2.is_followup is True
 
 
-def test_followup_inherits_after_answer_ask(domain, settings):
+def test_followup_inherits_after_answer_ask(domain, settings_inherit):
     # 답변 노드가 "어떤 상품인가요?" 로 되묻는 ASK 는 게이트 미달이 아니다(확신도 0.9).
     # 이 턴의 라우트는 확정 판단이므로 후속 발화가 이어받는다.
     router = ScriptedRouter(domain, [
@@ -478,12 +488,28 @@ def test_followup_inherits_after_answer_ask(domain, settings):
     ])
     ans = FakeAnswerer([("어떤 상품인지 말씀해 주시겠어요?", {}, []),
                         ("2,500원입니다.", {"get_shipping_policy": {}}, [])])
-    p = Pipeline(domain, settings, router=router, answerer=ans)
+    p = Pipeline(domain, settings_inherit, router=router, answerer=ans)
     cid, _, _ = p.start_call()
     r1 = p.turn(cid, "배송비 얼마예요?")
     assert r1.action == "ASK"
     r2 = p.turn(cid, "그거 캔버스화요")
     assert r2.route == "SHIPPING" and r2.is_followup is True
+
+
+def test_followup_not_inherited_by_default(domain, settings):
+    # FOLLOWUP_INHERIT 기본값은 꺼짐 — 라우터가 낸 라우트를 그대로 쓰고, is_followup 만 기록해 둔다.
+    router = ScriptedRouter(domain, [
+        RouteDecision(route="SHIPPING", confidence=0.9, reason="t"),
+        RouteDecision(route="PRODUCT_INFO", confidence=0.8, reason="t", is_followup=True),
+    ])
+    ans = FakeAnswerer([("2,500원입니다.", {"get_shipping_policy": {}}, []),
+                        ("사이즈는 S, M, L 이 있습니다.", {"search_product": {}}, [])])
+    p = Pipeline(domain, settings, router=router, answerer=ans)
+    cid, _, _ = p.start_call()
+    p.turn(cid, "캔버스화 배송비 얼마예요?")
+    r = p.turn(cid, "그럼 무료배송은요?")
+    assert r.route == "PRODUCT_INFO" and r.is_followup is True
+    assert "[직전 라우트] SHIPPING" in router.inputs[1]
 
 
 def test_routes_state_and_turn_log_contract(domain, settings):

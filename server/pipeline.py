@@ -167,17 +167,19 @@ class Pipeline:
         r = self.router.invoke({"question": q})
         route = r["route"]
         gated = r["action"] == "ESCALATE"   # 게이트(확신도·마진)가 이 턴의 판단을 거부했다
-        # 게이트 미달 턴의 라우트는 추측이므로 상속 앵커로 쓰지 않는다. [직전 라우트] 는 그래도
-        # 라우터에 알려 주되(모델이 문맥을 보도록), 이어받기만 막는다. OTHER 도 같은 이유로 제외.
-        followup = (bool(r.get("is_followup")) and prev_entry is not None
+        is_followup = bool(r.get("is_followup"))   # 라우터가 낸 원값. 기록·관찰용으로 그대로 남긴다
+        # 라우트 강제 이어받기는 FOLLOWUP_INHERIT 옵션(기본 꺼짐)일 때만 한다 — 멀티턴 측정(2026-09-17)에서
+        # 강제 상속이 라우트 전환 발화를 망쳐 순손실이었다. 켠 경우에도 게이트 미달 턴의 라우트는 추측이므로
+        # 상속 앵커로 쓰지 않는다([직전 라우트] 는 모델에 계속 알려 주고 이어받기만 막는다). OTHER 도 제외.
+        followup = (is_followup and self.settings.followup_inherit and prev_entry is not None
                     and not prev_entry["gated"] and prev_entry["route"] != "OTHER")
         if followup:
             route = prev   # 후속 발화는 라우트만 이어받고, 확신도 판정(action)은 라우터 결과를 그대로 쓴다
         base = {"route": route, "confidence": r["confidence"], "action": r["action"],
                 "route_alt": r.get("route_alt"), "alt_confidence": r.get("alt_confidence", 0.0),
-                "is_followup": followup,
+                "is_followup": is_followup,
                 "routes": [{"route": route, "confidence": r["confidence"],
-                            "is_followup": followup, "gated": gated}],
+                            "is_followup": is_followup, "gated": gated}],
                 "attempts": 0, "tools": [], "results": {}, "guardrail": None}
         count = state.get("clarify_count", 0)
         if r["action"] == "ESCALATE" and count < self.settings.clarify_max:

@@ -25,6 +25,7 @@ class Settings:
     tts_voice: str = "nova"
     judge_model: str = "gpt-4.1-mini"
     conf_margin: float = 0.0
+    followup_inherit: bool = False   # 후속 발화가 직전 라우트를 강제로 이어받을지. 기본 꺼짐
 
 
 def load_settings() -> Settings:
@@ -42,4 +43,5 @@ def load_settings() -> Settings:
         tts_voice=os.environ.get("TTS_VOICE", "nova"),
         judge_model=os.environ.get("JUDGE_MODEL", "gpt-4.1-mini"),
         conf_margin=float(os.environ.get("CONF_MARGIN", "0.3")),
+        followup_inherit=os.environ.get("FOLLOWUP_INHERIT", "0").lower() in ("1", "true", "yes"),
     )

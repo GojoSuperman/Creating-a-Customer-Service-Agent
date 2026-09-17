@@ -22,17 +22,17 @@ def load_multiturn(path: Path) -> list:
     return list(json.loads(Path(path).read_text(encoding="utf-8"))["conversations"])
 
 
-def route_conversation(graph, turns: list, use_history: bool = True) -> list:
+def route_conversation(graph, turns: list, use_history: bool = True, inherit: bool = False) -> list:
     """대화 하나를 턴 순서대로 라우팅한다. 런타임 _node_route 와 같은 규칙:
-    입력은 compose_router_input 으로 만들고, followup 이면서 직전 턴이 게이트를 통과했고
-    직전 라우트가 OTHER 가 아닐 때만 직전 라우트를 이어받는다.
+    입력은 compose_router_input 으로 만들고, 라우트 이어받기는 inherit=True(런타임의 FOLLOWUP_INHERIT)
+    일 때만 한다. 켠 경우에도 followup 이고 직전 턴이 게이트를 통과했고 직전 라우트가 OTHER 가 아닐 때만 이어받는다.
     is_followup 은 라우터가 낸 값 그대로 기록한다(이어받기 여부와 별개로 인식률을 재기 위해)."""
     history, prev, prev_gated, out = [], None, False, []
     for t in turns:
         q = compose_router_input(t["text"], history, prev) if use_history else t["text"]
         st = graph.invoke({"question": q})
         gated = st["action"] == "ESCALATE"   # 게이트(확신도·마진)가 이 턴의 판단을 거부했다
-        followup = (bool(st.get("is_followup")) and prev is not None
+        followup = (bool(st.get("is_followup")) and inherit and prev is not None
                     and not prev_gated and prev != "OTHER")
         route = prev if followup else st["route"]
         out.append({"route": route, "is_followup": bool(st.get("is_followup")), "confidence": st["confidence"]})
@@ -62,6 +62,7 @@ def main():
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--multiturn", action="store_true", help="멀티턴 라우트셋으로 드리프트 보정을 잰다")
     ap.add_argument("--no-history", action="store_true", help="--multiturn 기준선: 직전 문의·라우트 없이 단일 발화로")
+    ap.add_argument("--inherit", action="store_true", help="--multiturn 에서 후속 발화가 직전 라우트를 이어받게 한다 (런타임 FOLLOWUP_INHERIT=1)")
     args = ap.parse_args()
 
     s = load_settings()
@@ -76,9 +77,11 @@ def main():
         if args.limit:
             convs = convs[:args.limit]
         with ThreadPoolExecutor(max_workers=args.workers) as ex:
-            preds = list(ex.map(lambda c: route_conversation(graph, c["turns"], use_history=not args.no_history), convs))
+            preds = list(ex.map(lambda c: route_conversation(graph, c["turns"], use_history=not args.no_history,
+                                                             inherit=args.inherit), convs))
         sc = score_multiturn(convs, preds)
-        mode = "히스토리 없음(기준선)" if args.no_history else "히스토리+직전 라우트"
+        inh = "이어받기 켬" if args.inherit else "이어받기 끔"
+        mode = f"히스토리 없음(기준선), {inh}" if args.no_history else f"히스토리+직전 라우트({inh})"
         print(f"[멀티턴 {len(convs)}대화, {mode}] 턴1 정확도 {sc['turn1_acc']:.3f}  턴2+ 정확도 {sc['later_acc']:.3f}")
         print("\n[followup 혼동] 행=정답, 열=예측")
         print(sc["followup_confusion"].to_string())
