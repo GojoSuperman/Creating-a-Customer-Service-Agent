@@ -13,6 +13,7 @@
 ## Global Constraints
 
 - **새 파이썬 의존성 금지.** 서명은 표준 라이브러리로 한다.
+- **POST 폼은 `Form(...)` 대신 `await request.form()` 으로 읽는다.** FastAPI 의 `Form(...)` 은 `python-multipart` 를 요구하는데 이 환경에는 없다(컨트롤러 실측). Starlette 는 `application/x-www-form-urlencoded` 를 자체 파싱하므로, POST 라우트를 `async def` 로 만들고 `form = await request.form()` → `form.get("phone", "")` 처럼 읽으면 의존성 없이 동작한다. 모든 `<form>` 은 기본 인코딩(urlencoded)을 쓰고 `enctype="multipart/form-data"` 를 쓰지 않는다. 수량 같은 숫자는 `int(form.get("qty") or 1)` 로 직접 변환하고, 숫자가 아니면 기본값으로 처리한다.
 - **쓰기 SQL 은 `server/shoprepo.py` 에만.** `server/adminrepo.py`·`server/admin.py` 의 읽기 전용 원칙은 그대로다(그 파일들을 수정하지 말 것. 기존 회귀 테스트가 감시한다).
 - **`server/repo.py`·`server/pipeline.py`·`server/tools.py`·`server/router.py` 수정 금지.**
 - 모든 값은 `?` 바인딩. 문자열 포매팅으로 값을 SQL 에 넣지 않는다.
@@ -781,7 +782,7 @@ Expected: FAIL — `/shop` 이 404
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -862,8 +863,10 @@ def shop_router(repo, domain) -> APIRouter:
                       samples=repo.recently_active_customers.__self__ and [])
 
     @router.post("/login")
-    def login(request: Request, phone: str = Form("")):
-        c = repo.customer_by_phone(normalize_phone(phone)) if phone.strip() else None
+    async def login(request: Request):
+        form = await request.form()
+        phone = (form.get("phone") or "").strip()
+        c = repo.customer_by_phone(normalize_phone(phone)) if phone else None
         if not c:
             return templates.TemplateResponse(
                 request, "shop/login.html",
@@ -885,7 +888,7 @@ def shop_router(repo, domain) -> APIRouter:
 
 주의:
 - `login_form` 의 `samples` 는 위 코드처럼 쓰지 말고, `repo.sample_customers()` 가 `Repo` 에 없다면(파이프라인에만 있음) **빈 리스트로 두거나** `repo` 에서 직접 `select name, phone from customers order by customer_id limit 3` 로 뽑아 쓰세요. 구현자가 `server/repo.py` 를 읽고 실제 있는 메서드로 결정할 것. `server/repo.py` 는 수정 금지.
-- Form 처리에는 `python-multipart` 가 필요합니다. 없으면 설치하지 말고 **BLOCKED 로 보고**하세요(새 의존성은 컨트롤러 판단 사항).
+- 위 코드의 `Form(...)` 은 **쓰지 마세요.** Global Constraints 대로 `async def` + `form = await request.form()` 으로 바꿔 구현합니다(`python-multipart` 미설치, 컨트롤러 실측). 예: `async def login(request: Request): form = await request.form(); phone = (form.get("phone") or "").strip()`.
 
 - [ ] **Step 4: 템플릿과 CSS**
 
@@ -1024,7 +1027,14 @@ Expected: FAIL — `/shop/cart` 404
         return render(request, "cart.html", current_customer(request), quote=shop.quote(cart), blocked=[])
 
     @router.post("/cart/add")
-    def cart_add(request: Request, product_id: str = Form(...), qty: int = Form(1), option: str = Form("")):
+    async def cart_add(request: Request):
+        form = await request.form()
+        product_id = form.get("product_id") or ""
+        option = form.get("option") or ""
+        try:
+            qty = int(form.get("qty") or 1)
+        except ValueError:
+            qty = 1
         cart = cart_of(request)
         for line in cart:
             if line["product_id"] == product_id and (line["option"] or "") == (option or ""):
@@ -1038,7 +1048,13 @@ Expected: FAIL — `/shop/cart` 404
         return response
 
     @router.post("/cart/update")
-    def cart_update(request: Request, product_id: str = Form(...), qty: int = Form(1)):
+    async def cart_update(request: Request):
+        form = await request.form()
+        product_id = form.get("product_id") or ""
+        try:
+            qty = int(form.get("qty") or 0)
+        except ValueError:
+            qty = 0
         cart = [line for line in cart_of(request) if line["product_id"] != product_id or qty > 0]
         for line in cart:
             if line["product_id"] == product_id:
