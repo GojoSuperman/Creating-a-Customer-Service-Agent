@@ -62,6 +62,10 @@ body[data-phase="SPEAKING"] header { box-shadow: inset 0 -3px 0 #60a5fa }
 .stat-route { background:#334155; padding:1px 8px; border-radius:6px; font-size:.85em; margin:2px 0 2px 6px; display:inline-block }
 .customer-card { background:#16321f; border:1px solid var(--ok); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:.9em }
 .customer-card.guest { background:var(--paper); border-color:var(--line); color:var(--muted) }
+.customer-card .name { font-weight:700; color:var(--ok); margin-bottom:6px; font-size:1.05em }
+.customer-card .name small { font-weight:400; color:var(--muted); margin-left:8px; font-size:.85em }
+.customer-card dl { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; margin:0 0 8px }
+.customer-card dt { color:var(--muted) } .customer-card dd { margin:0 }
 .customer-card h4 { margin:0 0 4px; font-size:.85em; color:var(--muted); text-transform:none }
 .customer-card ul { margin:0; padding:0 0 0 18px }
 .customer-card li { margin:2px 0 }
@@ -117,16 +121,10 @@ code { background:#0f1318; padding:1px 5px; border-radius:4px }
 .settings-actions .ghost{background:none;border:1px solid var(--line);color:var(--ink);height:36px;padding:0 14px}
 .settings-actions .call{height:36px;padding:0 18px}
 .db { display:flex; flex-direction:column; border-left:1px solid var(--line); background:var(--paper); min-width:0; min-height:0; }
-.db-tabs { display:flex; gap:4px; padding:10px 12px; border-bottom:1px solid var(--line); flex:0 0 auto; }
-.db-tab { flex:1 1 auto; height:34px; padding:0 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg);
-  color:var(--muted); font-size:.9em; font-weight:600; cursor:pointer; }
-.db-tab.active { background:var(--accent); color:#0b0f14; border-color:var(--accent); }
-.db-pane { flex:1 1 auto; min-height:0; display:flex; }
-.db-pane[hidden] { display:none; }
-.db-pane-split { flex-direction:column; }
-.db-pane-top { flex:1 1 60%; min-height:0; overflow-y:auto; display:flex; }
+.db h2 { margin:0 0 12px; font-size:1.05em; color:var(--muted); padding:20px 24px 0; flex:0 0 auto; }
+.db-pane-split { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+.db-pane-top { flex:1 1 60%; min-height:0; overflow-y:auto; }
 .db-pane-bottom { flex:1 1 40%; min-height:0; overflow-y:auto; border-top:1px solid var(--line); }
 .db-empty { margin:16px; padding:14px; border:1px solid var(--line); border-radius:10px; color:var(--muted); font-size:.9em; text-align:center; }
-.db-frame { flex:1 1 auto; width:100%; height:100%; border:0; background:var(--bg); }
 /* 1280px 이하에서도 통화·관리자·조회 3열을 유지한다(각 열은 .layout의 minmax로 최소폭 확보).
    3열 세로 쌓기는 900px 이하(위 미디어 쿼리)에서만 적용한다. */

@@ -1,33 +1,35 @@
-// 조회 패널: "현재 고객"(상단 = 어드민 고객 상세 iframe, 하단 = 진행 중 주문) / "전체 조회"(어드민 홈, 지연 로딩) 탭.
-import { orderCard, activeOrders } from "./ordercard.js";
+// 조회 패널: "현재 고객" 단일 패널. 상단 = 고객 기본정보 + 최근 주문, 하단 = 진행 중 주문.
+// 예전에는 상단이 어드민 고객 상세 iframe이었으나, ADMIN_PASSWORD 미설정/Basic 인증 문제로
+// 화면에 고객 정보가 안 보이는 문제가 있어 통화 데이터로 직접 렌더링하도록 바꿨다.
+import { esc, orderCard, activeOrders } from "./ordercard.js";
 
 export function createDbPanel() {
-  const tabCustomer = document.getElementById("db-tab-customer");
-  const tabAll = document.getElementById("db-tab-all");
-  const paneCustomer = document.getElementById("db-pane-customer");
-  const paneAll = document.getElementById("db-pane-all");
   const emptyEl = document.getElementById("db-customer-empty");
-  const customerFrame = document.getElementById("db-customer-frame");
-  const allFrame = document.getElementById("db-all-frame");
+  const cardEl = document.getElementById("db-customer-card");
   const activeEmptyEl = document.getElementById("db-active-empty");
   const activeListEl = document.getElementById("db-active-orders");
 
-  let allLoaded = false;
-
-  function selectTab(name) {
-    const isCustomer = name === "customer";
-    tabCustomer.classList.toggle("active", isCustomer);
-    tabAll.classList.toggle("active", !isCustomer);
-    paneCustomer.hidden = !isCustomer;
-    paneAll.hidden = isCustomer;
-    if (!isCustomer && !allLoaded) {
-      allFrame.src = "/admin/customers";
-      allLoaded = true;
+  function renderCustomerInfo(c, p) {
+    if (!c) {
+      emptyEl.hidden = false;
+      emptyEl.textContent = "비회원 통화 — 조회할 고객 정보가 없습니다.";
+      cardEl.hidden = true;
+      cardEl.innerHTML = "";
+      return;
     }
+    emptyEl.hidden = true;
+    cardEl.hidden = false;
+    const prof = p || {};
+    const orders = prof.orders || ((c.recent_orders || []).map(o => ({ ...o, in_progress: false })));
+    const rest = orders.filter(o => !o.in_progress);
+    const info = `<dl>
+      <dt>전화</dt><dd>${esc(prof.phone || c.phone || "-")}</dd>
+      <dt>주소</dt><dd>${esc(prof.address || "-")}${prof.address_region ? ` <span class="muted">(${esc(prof.address_region)})</span>` : ""}</dd>
+      ${prof.joined_at ? `<dt>가입</dt><dd>${esc(prof.joined_at)}</dd>` : ""}
+    </dl>`;
+    const restHtml = `<h4>최근 주문</h4><ul>${rest.map(orderCard).join("") || "<li class='muted'>완료된 최근 주문 없음</li>"}</ul>`;
+    cardEl.innerHTML = `<div class="customer-card"><div class="name">${esc(c.name)} 고객님<small>${esc(c.customer_id || "")}</small></div>${info}${restHtml}</div>`;
   }
-
-  tabCustomer.onclick = () => selectTab("customer");
-  tabAll.onclick = () => selectTab("all");
 
   function renderActive(c, p) {
     activeEmptyEl.hidden = true;
@@ -48,15 +50,11 @@ export function createDbPanel() {
     // 통화가 끝나도 마지막 값을 유지하므로 초기화 시에는 호출하지 않는다.
     setCustomer(c, p) {
       if (!c || !c.customer_id) {
-        customerFrame.hidden = true;
-        emptyEl.hidden = false;
-        emptyEl.textContent = "비회원 통화 — 조회할 고객 정보가 없습니다.";
+        renderCustomerInfo(null, null);
         renderActive(null, null);
         return;
       }
-      emptyEl.hidden = true;
-      customerFrame.hidden = false;
-      customerFrame.src = `/admin/customers/${encodeURIComponent(c.customer_id)}?embed=1`;
+      renderCustomerInfo(c, p);
       renderActive(c, p);
     },
   };

@@ -105,12 +105,6 @@ async function sendTurn(text) {
   addBubble("customer", text);
   setPhase("THINKING");
   const gen = state.gen;
-  // 응답이 1.5초 넘게 걸리면 안내 음성을 먼저 낸다. 답변이 도착해도 이 문장이 끝난 뒤에 읽는다
-  // (바로 끊으면 "잠시만 기…" 처럼 중간에 잘린다).
-  let fillerDone = Promise.resolve();
-  const filler = setTimeout(() => {
-    if (state.phase === "THINKING" && !state.textOnly) fillerDone = voice.speak("잠시만 확인해 드리겠습니다.");
-  }, 1500);
   let r;
   try {
     const res = await fetch("/api/call/turn", {
@@ -118,7 +112,6 @@ async function sendTurn(text) {
       body: JSON.stringify({ call_id: state.callId, text }),
     });
     if (res.status === 401) {
-      clearTimeout(filler);
       if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
       openSettingsForMissingKey();
       state.busy = false;
@@ -127,19 +120,15 @@ async function sendTurn(text) {
     if (!res.ok) throw new Error(`서버 오류 ${res.status}: ${await res.text()}`);
     r = await res.json();
   } catch (e) {
-    clearTimeout(filler);
     if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
     addBubble("system", String(e.message));
     state.busy = false;
     return listenLoop();
   }
-  clearTimeout(filler);
   if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
   state.turns += 1;
   panel.addTurn(text, r);
   statsPanel.addTurn(r);   // 네트워크 호출 없이 브라우저에서 바로 누적 집계
-  await fillerDone;                       // 안내 음성이 재생 중이면 끝날 때까지 기다린다
-  if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
   await say(r.answer, r.speech);
   if (gen !== state.gen || state.phase === "ENDED") { state.busy = false; return; }
   if (r.end_call) { state.busy = false; return endCall("에이전트가 통화를 종료했습니다"); }

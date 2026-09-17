@@ -51,22 +51,16 @@
     </div>
   </aside>
   <aside class="db">
-    <div class="db-tabs">
-      <button type="button" id="db-tab-customer" class="db-tab active" data-tab="customer">현재 고객</button>
-      <button type="button" id="db-tab-all" class="db-tab" data-tab="all">전체 조회</button>
-    </div>
-    <div id="db-pane-customer" class="db-pane db-pane-split">
+    <h2>현재 고객</h2>
+    <div id="db-pane-customer" class="db-pane-split">
       <div class="db-pane-top">
         <div id="db-customer-empty" class="db-empty">통화가 시작되면 고객 정보가 여기에 표시됩니다.</div>
-        <iframe id="db-customer-frame" class="db-frame" title="현재 고객 조회" hidden></iframe>
+        <div id="db-customer-card" hidden></div>
       </div>
       <div class="db-pane-bottom">
         <div id="db-active-empty" class="db-empty">통화가 시작되면 진행 중 주문이 여기에 표시됩니다.</div>
         <div id="db-active-orders" hidden></div>
       </div>
-    </div>
-    <div id="db-pane-all" class="db-pane" hidden>
-      <iframe id="db-all-frame" class="db-frame" title="전체 조회"></iframe>
     </div>
   </aside>
 </div>
